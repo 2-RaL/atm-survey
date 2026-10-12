@@ -1,0 +1,8 @@
+node_modules/
+.env
+.env.*.local
+data/db.json
+data/uploads/
+sorgupro-private-data/
+*.log
+.DS_Store

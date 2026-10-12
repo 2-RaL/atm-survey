@@ -1,0 +1,1 @@
+# This directory stores the persistent database at runtime. Do not serve over HTTP.
