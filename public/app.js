@@ -173,10 +173,11 @@ function renderLogin(){
           <div id="login-error"></div>
           <button class="btn btn-primary btn-lg w100" style="margin-top:12px" type="submit">Sistemə daxil ol ${ico('arrow',17)}</button>
           <div class="login-demo">
-            <b>Demo girişlər:</b><br>
-            • Admin: <b>admin</b> / <b>Admin@2026!</b><br>
-            • Redaktor: <b>redaktor1</b> / <b>Editor@2026!</b><br>
-            • Operator: <b>operator1</b> / <b>Agent@2026!</b>
+            <b>Demo girişlər (bütün şifrələr: 1234567890):</b><br>
+            <div style="cursor:pointer;margin-top:4px" onclick="document.querySelector('[name=username]').value='admin';document.querySelector('[name=password]').value='1234567890'">• Admin: <b>admin</b> / <b>1234567890</b></div>
+            <div style="cursor:pointer;margin-top:2px" onclick="document.querySelector('[name=username]').value='redaktor1';document.querySelector('[name=password]').value='1234567890'">• Redaktor: <b>redaktor1</b> / <b>1234567890</b></div>
+            <div style="cursor:pointer;margin-top:2px" onclick="document.querySelector('[name=username]').value='operator1';document.querySelector('[name=password]').value='1234567890'">• Operator 1: <b>operator1</b> / <b>1234567890</b></div>
+            <div style="cursor:pointer;margin-top:2px" onclick="document.querySelector('[name=username]').value='operator2';document.querySelector('[name=password]').value='1234567890'">• Operator 2: <b>operator2</b> / <b>1234567890</b></div>
           </div>
           <div class="login-copy">Qorunan giriş · Rol əsaslı icazələr · Təhlükəsiz sessiya</div>
         </form>

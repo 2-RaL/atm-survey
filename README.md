@@ -26,9 +26,10 @@ Brauzerdə **http://localhost:3000** açın. Lokal test rejimində ilk işə sal
 
 | Rol | İstifadəçi adı | Şifrə |
 |---|---|---|
-| Administrator | `admin` | `Admin@2026!` |
-| Operator 1 | `operator1` | `Agent@2026!` |
-| Operator 2 | `operator2` | `Agent@2026!` |
+| Administrator | `admin` | `1234567890` |
+| Redaktor | `redaktor1` | `1234567890` |
+| Operator 1 | `operator1` | `1234567890` |
+| Operator 2 | `operator2` | `1234567890` |
 
 **Vacib:** Bu məlumatlar yalnız demo məqsədlidir. Production rejimində həmin demo hesablar yaradılmır; Hostinger üçün ayrıca təhlükəsiz ADMIN_PASSWORD tələb olunur. `ADMIN_PASSWORD` mühit dəyişəni **yalnız baza ilk dəfə yaradılarkən** nəzərə alınır. Mövcud hesaba sonradan şifrə dəyişilməsi veb interfeysdən aparılmalıdır.
 

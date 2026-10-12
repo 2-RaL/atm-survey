@@ -404,17 +404,26 @@ test('Admin and Editor edit survey structure, modify operator response sheets, a
   assert.equal(editedResp.durationSec, 135);
   assert.equal(editedResp.answers['q-matrix']['Meyar 1: Sürət'], 'Əla');
 
-  // 5. Check Excel export puts each matrix criterion on its own separate row
+  // 5. Check Excel export puts questions and matrix criteria in column headers at top, and answers underneath
   const excelExp = await fetch(`${base}/api/export/${sId}?format=excel`, {
     headers: { Cookie: adminAuth.cookie }
   });
   assert.equal(excelExp.status, 200);
   const html = await excelExp.text();
-  assert.ok(html.includes('Meyar 1: Sürət'), 'Criterion 1 is listed on its own row');
-  assert.ok(html.includes('Meyar 2: Keyfiyyət'), 'Criterion 2 is listed on its own row');
-  assert.ok(html.includes('Meyar 3: Dəstək'), 'Criterion 3 is listed on its own row');
-  assert.ok(html.includes('Kamil Vəliyev (Düzəliş)'), 'Modified response name appears in Excel');
-  assert.ok(html.includes('2 dəq 15 san'), 'Updated duration formatted appears in Excel');
+  assert.ok(html.includes('Meyar 1: Sürət'), 'Criterion 1 is listed in column header');
+  assert.ok(html.includes('Meyar 2: Keyfiyyət'), 'Criterion 2 is listed in column header');
+  assert.ok(html.includes('Meyar 3: Dəstək'), 'Criterion 3 is listed in column header');
+  assert.ok(html.includes('Kamil Vəliyev (Düzəliş)'), 'Modified response name appears in Excel data row');
+  assert.ok(html.includes('2 dəq 15 san'), 'Updated duration formatted appears in Excel data row');
+  assert.ok(html.includes('Əla'), 'Answer appears in data row beneath the criterion column');
+
+  // 6. Verify logging in with unified 1234567890 password for all roles
+  const login123Admin = await login(base, 'admin', '1234567890');
+  assert.ok(login123Admin.cookie, 'Admin logs in with 1234567890');
+  const login123Editor = await login(base, 'redaktor1', '1234567890');
+  assert.ok(login123Editor.cookie, 'Editor logs in with 1234567890');
+  const login123Operator = await login(base, 'operator1', '1234567890');
+  assert.ok(login123Operator.cookie, 'Operator logs in with 1234567890');
 });
 
 test('Survey deletion (DELETE /api/surveys/:id): admin/editor can delete survey, operator cannot, and audit logs event', async t => {
