@@ -169,4 +169,37 @@ test('Direct survey interview flow, survey sectors for contacts, and operator ti
   assert.ok(csv.includes('2 dəq 25 san'), 'CSV row contains respondent duration');
   assert.ok(csv.includes('ƏMƏKDAŞLARIN ÜMUMİ VAXT'), 'CSV includes final summary table');
   assert.ok(csv.includes('operator1'), 'CSV summary includes operator');
+
+  // 6. Check Excel export has Arial 14 Bold headers, Arial 12 answers, and separate columns/rows
+  const excelRes = await fetch(`${base}/api/export/${surveyId}?format=excel`, {
+    headers: { Cookie: adminAuth.cookie },
+  });
+  assert.equal(excelRes.status, 200);
+  assert.ok(excelRes.headers.get('content-type').includes('application/vnd.ms-excel'));
+  const excelHtml = await excelRes.text();
+  assert.ok(excelHtml.includes('font-size: 14pt !important;'), 'Headers have Arial 14 style');
+  assert.ok(excelHtml.includes('font-weight: bold !important;'), 'Headers have Bold style');
+  assert.ok(excelHtml.includes('font-size: 12pt !important;'), 'Answers have Arial 12 style');
+  assert.ok(excelHtml.includes('font-family: Arial'), 'Font family is Arial');
+  assert.ok(excelHtml.includes('Sual 1:'), 'Each question has its own separate column header');
+  assert.ok(excelHtml.includes('2 dəq 25 san'), 'Respondent row includes duration');
+  assert.ok(excelHtml.includes('ƏMƏKDAŞLARIN ÜMUMİ VAXT VƏ İCRA İCMALI'), 'Excel includes final summary table');
+
+  // 7. Check Contacts and Audit table Excel exports
+  const contactsExpRes = await fetch(`${base}/api/export-contacts?format=excel`, {
+    headers: { Cookie: adminAuth.cookie },
+  });
+  assert.equal(contactsExpRes.status, 200);
+  const contactsHtml = await contactsExpRes.text();
+  assert.ok(contactsHtml.includes('font-size: 14pt !important;'));
+  assert.ok(contactsHtml.includes('font-size: 12pt !important;'));
+  assert.ok(contactsHtml.includes('Rəşad Əliyev'));
+
+  const auditExpRes = await fetch(`${base}/api/export-audit?format=excel`, {
+    headers: { Cookie: adminAuth.cookie },
+  });
+  assert.equal(auditExpRes.status, 200);
+  const auditHtml = await auditExpRes.text();
+  assert.ok(auditHtml.includes('font-size: 14pt !important;'));
+  assert.ok(auditHtml.includes('font-size: 12pt !important;'));
 });

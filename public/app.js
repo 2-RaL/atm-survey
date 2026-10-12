@@ -420,7 +420,7 @@ function surveysPage(){
             <span><b>${s.contactsCount||0}</b>Bazada</span>
             <span><b>${s.estimatedMinutes} dəq.</b>Müddət</span>
           </div>
-          ${s.access!=='private'&&s.status==='active'?`
+          ${isAdmin()&&s.access!=='private'&&s.status==='active'?`
             <div class="share-link-box" style="margin-top:14px">
               <input class="share-link-input" readonly value="${location.origin}/#/s/${s.id}">
               <button class="btn btn-sm btn-quiet" data-action="copy-share-link" data-id="${s.id}" title="Linki kopyala">${ico('copy',13)} Kopyala</button>
@@ -456,8 +456,9 @@ function contactsPage(){
 
   return `
     ${heading('RESPONDENT BAZASI','Baza və Sorğu Sektorları','Hər sorğu üçün ayrılmış sektor üzrə respondentləri idarə edin və müsahibəyə başlayın.',`
-      ${leader?`<button class="btn" data-action="import-contacts" data-sector="${state.selectedSector!=='all'&&state.selectedSector!=='unassigned'?state.selectedSector:''}">${ico('upload',16)} Sektora CSV idxalı</button>`:''}
-      <button class="btn btn-primary" data-action="new-contact" data-sector="${state.selectedSector!=='all'&&state.selectedSector!=='unassigned'?state.selectedSector:''}">${ico('plus',16)} Respondent əlavə et</button>
+      <button class="btn" data-action="export-contacts-excel">${ico('download',15)} Excel ixrac</button>
+      ${leader?`<button class="btn" data-action="import-contacts" data-sector="${state.selectedSector!=='all'&&state.selectedSector!=='unassigned'?state.selectedSector:''}">${ico('upload',15)} Sektora CSV idxalı</button>`:''}
+      <button class="btn btn-primary" data-action="new-contact" data-sector="${state.selectedSector!=='all'&&state.selectedSector!=='unassigned'?state.selectedSector:''}">${ico('plus',15)} Respondent əlavə et</button>
     `)}
     <div class="sector-tabs-wrap">
       <button class="sector-tab ${state.selectedSector==='all'?'active':''}" data-action="select-sector" data-sector="all">
@@ -583,7 +584,10 @@ function reportDetail(){
           <h2 style="font-size:22px;margin:0 0 8px">${esc(r.survey.title)}</h2>
           ${outcomeBadge(r.survey.status)}
         </div>
-        <button class="btn btn-primary" data-action="export-report" data-id="${r.survey.id}">${ico('download',16)} Excel / CSV ixrac</button>
+        <div class="gap10">
+          <button class="btn btn-primary" data-action="export-report-excel" data-id="${r.survey.id}">${ico('download',15)} Excel ixrac (.xls)</button>
+          <button class="btn btn-quiet" data-action="export-report-csv" data-id="${r.survey.id}">${ico('file',15)} CSV ixrac (.csv)</button>
+        </div>
       </div>
       <div class="grid cols-4 mt20">
         <div class="report-metric"><span>Tamamlanan müsahibə</span><b>${r.completed}</b></div>
@@ -756,7 +760,8 @@ function auditPage(){
   let list=filtered(state.audit,a=>(a.userName||'')+' '+(a.username||'')+' '+(a.ip||'')+' '+(a.action||'')+' '+(a.entity||'')+' '+(a.details||'')+' '+(a.role||''));
   return `
     ${heading('TƏHLÜKƏSİZLİK VƏ AUDİT','Fəaliyyət tarixçəsi','Bütün istifadəçilərin sistemdəki hərəkətləri və IP ünvanlarının qeydiyyatı.',`
-      <button class="btn" data-action="refresh">${ico('refresh',16)} Yenilə</button>
+      <button class="btn" data-action="export-audit-excel">${ico('download',15)} Excel ixrac</button>
+      <button class="btn" data-action="refresh">${ico('refresh',15)} Yenilə</button>
     `)}
     <div class="filter-strip">
       <input class="filter-input" data-local-search placeholder="İstifadəçi, rol, IP ünvanı və ya hərəkət üzrə axtar..." value="${esc(state.filter)}">
@@ -1706,6 +1711,7 @@ async function dispatchAction(el){
       case'duplicate-survey':{if(!confirm('Bu sorğunun surətini yaratmaq istəyirsiniz?'))break;const r=await api('/api/surveys/'+id+'/duplicate',{});await refresh();makeBuilder(r.survey);notify('Sorğunun surəti yaradıldı.');break;}
       case'survey-status':statusModal(id);break;
       case'copy-share-link':{
+        if(!isAdmin()){notify('İctimai link yalnız administrator tərəfindən paylaşıla bilər.',true);break;}
         const link=`${window.location.origin}/#/s/${id}`;
         if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(link);}
         else{const ta=document.createElement('textarea');ta.value=link;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();}
@@ -1721,7 +1727,15 @@ async function dispatchAction(el){
       case'close-report':state.report=null;render();break;
       case'report-tab':state.reportTab=el.dataset.tab;render();break;
       case'response-details':responseDetails(id);break;
-      case'export-report':window.location.href='/api/export/'+id;notify('Excel/CSV ixracı başlanıldı.');break;
+      case'export-report':
+      case'export-report-excel':window.location.href='/api/export/'+id+'?format=excel';notify('Excel (.xls) ixracı başlanıldı.');break;
+      case'export-report-csv':window.location.href='/api/export/'+id+'?format=csv';notify('CSV ixracı başlanıldı.');break;
+      case'export-contacts-excel':{
+        const sec=state.selectedSector!=='all'&&state.selectedSector!=='unassigned'?('&surveyId='+state.selectedSector):'';
+        window.location.href='/api/export-contacts?format=excel'+sec;
+        notify('Respondent bazasının Excel ixracı başlanıldı.');break;
+      }
+      case'export-audit-excel':window.location.href='/api/export-audit?format=excel';notify('Fəaliyyət tarixçəsinin Excel ixracı başlanıldı.');break;
       case'close-modal':closeModal();break;
       case'save-builder':{const r=await api('/api/surveys/'+state.builder.id,state.builder,'PUT');state.builder=r.survey;state.dirty=false;await refresh();render();notify('Sorğu yadda saxlanıldı.');break;}
       case'add-question':{const s=state.builder;const q=newQuestion(el.dataset.type,el.dataset.section||state.builderSection||s.sections[0].id);s.questions.push(q);state.builderQ=q.id;state.builderSection=q.sectionId;state.preview=false;state.propOpen=true;state.dirty=true;render();break;}

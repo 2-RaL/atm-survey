@@ -334,3 +334,110 @@
 }
 
 
+
+/* =========================================================
+   SOL MENYU (SİDEBAR) DİZAYN VƏ RƏNG TƏKMİLLƏŞDİRMƏSİ
+   ========================================================= */
+.sidebar {
+  background: linear-gradient(180deg, #0b1120 0%, #0f172a 45%, #131d36 100%) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: #f1f5f9 !important;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3) !important;
+}
+
+.side-brand {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+.side-brand .brand-name {
+  color: #ffffff !important;
+  font-weight: 850 !important;
+  letter-spacing: -0.3px !important;
+}
+.side-brand .brand-desc {
+  color: #94a3b8 !important;
+  font-weight: 700 !important;
+  letter-spacing: 2px !important;
+}
+
+.nav-link {
+  color: #e2e8f0 !important;
+  font-size: 13.5px !important;
+  font-weight: 600 !important;
+  padding: 11px 14px !important;
+  margin: 4px 0 !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  transition: all 0.16s ease !important;
+}
+.nav-link svg {
+  color: #94a3b8 !important;
+  opacity: 0.9 !important;
+  transition: all 0.16s ease !important;
+}
+.nav-link:hover {
+  background: rgba(255, 255, 255, 0.09) !important;
+  color: #ffffff !important;
+  transform: translateX(2px) !important;
+}
+.nav-link:hover svg {
+  color: #60a5fa !important;
+  opacity: 1 !important;
+}
+.nav-link.active {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.45) !important;
+}
+.nav-link.active svg {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+.nav-count {
+  background: rgba(255, 255, 255, 0.18) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border-radius: 6px !important;
+}
+
+.nav-label {
+  font-size: 11px !important;
+  color: #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.12) !important;
+  border: 1px solid rgba(56, 189, 248, 0.28) !important;
+  letter-spacing: 1.6px !important;
+  font-weight: 850 !important;
+  text-transform: uppercase !important;
+  margin: 20px 8px 10px !important;
+  padding: 4px 10px !important;
+  border-radius: 7px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2) !important;
+}
+
+.side-bottom {
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(0, 0, 0, 0.15) !important;
+}
+.side-assist {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.85), rgba(15, 23, 42, 0.95)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #cbd5e1 !important;
+}
+.side-assist b {
+  color: #ffffff !important;
+  font-weight: 750 !important;
+}
+.side-assist p {
+  color: #94a3b8 !important;
+}
+.side-user-text strong {
+  color: #ffffff !important;
+  font-size: 12px !important;
+  font-weight: 750 !important;
+}
+.side-user-text small {
+  color: #94a3b8 !important;
+}

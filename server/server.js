@@ -71,6 +71,181 @@ function formatDuration(sec){
   if (rem > 0 || !parts.length) parts.push(rem + ' san');
   return parts.join(' ');
 }
+
+function cleanAnswerForExport(v, q) {
+  if (v === undefined || v === null || v === '') return '—';
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return v.join(', ');
+  if (typeof v === 'object') {
+    if (v.variant && v.answer !== undefined) return String(v.variant) + ' -> ' + String(v.answer);
+    return Object.entries(v).map(([k, val]) => `${k}: ${val}`).join('; ');
+  }
+  return String(v);
+}
+
+function buildExcelTable({ title, meta, headers, rows, summaryTitle, summaryHeaders, summaryRows, summaryTotal }) {
+  const escXml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return `\ufeff<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<!--[if gte mso 9]>
+<xml>
+ <x:ExcelWorkbook>
+  <x:ExcelWorksheets>
+   <x:ExcelWorksheet>
+    <x:Name>${escXml(title.slice(0, 30))}</x:Name>
+    <x:WorksheetOptions>
+     <x:DisplayGridlines/>
+    </x:WorksheetOptions>
+   </x:ExcelWorksheet>
+  </x:ExcelWorksheets>
+ </x:ExcelWorkbook>
+</xml>
+<![endif]-->
+<style>
+  body, table { font-family: Arial, sans-serif; }
+  .report-title {
+    font-family: Arial, sans-serif !important;
+    font-size: 16pt !important;
+    font-weight: bold !important;
+    color: #1e1b4b !important;
+    padding: 12px 6px !important;
+    height: 36pt !important;
+    vertical-align: middle !important;
+  }
+  .report-meta {
+    font-family: Arial, sans-serif !important;
+    font-size: 11pt !important;
+    color: #475569 !important;
+    padding: 6px !important;
+    height: 20pt !important;
+  }
+  th.head-col {
+    font-family: Arial, sans-serif !important;
+    font-size: 14pt !important;
+    font-weight: bold !important;
+    background-color: #3730a3 !important;
+    color: #ffffff !important;
+    border: 1px solid #1e1b4b !important;
+    padding: 10px 14px !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+    height: 32pt !important;
+    mso-number-format: "\\@";
+  }
+  td.data-cell {
+    font-family: Arial, sans-serif !important;
+    font-size: 12pt !important;
+    font-weight: normal !important;
+    color: #0f172a !important;
+    border: 1px solid #cbd5e1 !important;
+    padding: 8px 12px !important;
+    vertical-align: middle !important;
+    height: 24pt !important;
+    mso-number-format: "\\@";
+  }
+  td.duration-cell {
+    font-family: Arial, sans-serif !important;
+    font-size: 12pt !important;
+    font-weight: bold !important;
+    background-color: #eff6ff !important;
+    color: #1e40af !important;
+    border: 1px solid #93c5fd !important;
+    padding: 8px 12px !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+    height: 24pt !important;
+    mso-number-format: "\\@";
+  }
+  th.summary-banner {
+    font-family: Arial, sans-serif !important;
+    font-size: 14pt !important;
+    font-weight: bold !important;
+    background-color: #0f172a !important;
+    color: #ffffff !important;
+    border: 1px solid #0f172a !important;
+    padding: 12px !important;
+    text-align: left !important;
+    height: 30pt !important;
+  }
+  th.summary-th {
+    font-family: Arial, sans-serif !important;
+    font-size: 14pt !important;
+    font-weight: bold !important;
+    background-color: #1e293b !important;
+    color: #ffffff !important;
+    border: 1px solid #334155 !important;
+    padding: 10px 12px !important;
+    text-align: center !important;
+    vertical-align: middle !important;
+    height: 28pt !important;
+  }
+  td.summary-td {
+    font-family: Arial, sans-serif !important;
+    font-size: 12pt !important;
+    font-weight: normal !important;
+    color: #0f172a !important;
+    border: 1px solid #cbd5e1 !important;
+    padding: 8px 12px !important;
+    vertical-align: middle !important;
+    height: 22pt !important;
+    mso-number-format: "\\@";
+  }
+  td.total-cell {
+    font-family: Arial, sans-serif !important;
+    font-size: 12pt !important;
+    font-weight: bold !important;
+    background-color: #e2e8f0 !important;
+    color: #0f172a !important;
+    border: 1px solid #94a3b8 !important;
+    padding: 9px 12px !important;
+    vertical-align: middle !important;
+    height: 25pt !important;
+    mso-number-format: "\\@";
+  }
+</style>
+</head>
+<body>
+<table border="1" cellpadding="6" cellspacing="0">
+  <tr>
+    <td colspan="${headers.length}" class="report-title">${escXml(title)}</td>
+  </tr>
+  ${meta ? `<tr><td colspan="${headers.length}" class="report-meta">${escXml(meta)}</td></tr>` : ''}
+  <tr>
+    ${headers.map(h => `<th class="head-col">${escXml(h)}</th>`).join('')}
+  </tr>
+  ${rows.map(row => `
+    <tr>
+      ${row.map((cell, idx) => {
+        const isDuration = idx === 6;
+        return `<td class="${isDuration ? 'duration-cell' : 'data-cell'}">${escXml(cell)}</td>`;
+      }).join('')}
+    </tr>
+  `).join('')}
+  ${summaryHeaders ? `
+    <tr><td colspan="${headers.length}" style="height:18pt;border:none;"></td></tr>
+    <tr>
+      <th colspan="${summaryHeaders.length}" class="summary-banner">${escXml(summaryTitle || 'ƏMƏKDAŞLARIN ÜMUMİ VAXT VƏ İCRA İCMALI')}</th>
+    </tr>
+    <tr>
+      ${summaryHeaders.map(sh => `<th class="summary-th">${escXml(sh)}</th>`).join('')}
+    </tr>
+    ${(summaryRows || []).map(sRow => `
+      <tr>
+        ${sRow.map(sCell => `<td class="summary-td">${escXml(sCell)}</td>`).join('')}
+      </tr>
+    `).join('')}
+    ${summaryTotal ? `
+      <tr>
+        ${summaryTotal.map(tCell => `<td class="total-cell">${escXml(tCell)}</td>`).join('')}
+      </tr>
+    ` : ''}
+  ` : ''}
+</table>
+</body>
+</html>`;
+}
+
 function sumSurvey(s,user){
   const cCount = get().contacts.filter(c => c.surveyId === s.id).length;
   const rList = filteredResponses(user).filter(r => r.surveyId === s.id && r.status === 'completed');
@@ -315,38 +490,162 @@ if(p==='/api/login'&&method==='POST'){
  if(m){const a=db.assignments.find(x=>x.id===m[1]);if(!a||!canManage(user)&&a.assignedTo!==user.id)return error(res,404,'Təyinat tapılmadı.');const s=db.surveys.find(x=>x.id===a.surveyId);let r=db.responses.find(x=>x.assignmentId===a.id);if(method==='GET')return respond(res,200,{assignment:a,contact:db.contacts.find(c=>c.id===a.contactId),survey:s,response:r||null,calls:db.callLogs.filter(x=>x.assignmentId===a.id)});
  if(method==='PUT'){if(r&&r.status==='completed')return error(res,409,'Bu sorğu artıq yekunlaşdırılıb.');const d=await readBody(req),answers=answerSanitize(d.answers,s),submitted=d.status==='completed';for(const q of s.questions)if(!visible(q,answers))delete answers[q.id];if(submitted){const err=validateAnswers(s,answers);if(err)return error(res,400,err);}const now=iso();if(!r){r={id:uid(),surveyId:s.id,assignmentId:a.id,contactId:a.contactId,agentId:user.id,answers:{},status:'draft',durationSec:0,startedAt:now,updatedAt:now,submittedAt:null};db.responses.unshift(r);}r.answers=answers;r.status=submitted?'completed':'draft';r.durationSec=Math.max(0,Math.min(86400,Number(d.durationSec)||0));r.updatedAt=now;if(submitted){r.submittedAt=now;a.status='completed';a.updatedAt=now;db.callLogs.unshift({id:uid(),assignmentId:a.id,agentId:user.id,outcome:'completed',notes:'Sorğu tamamlandı',durationSec:r.durationSec,createdAt:now});a.attempts++;a.lastCallAt=now;log(req,user,'Müsahibəni tamamladı',s.title,'Respondent: '+(db.contacts.find(c=>c.id===a.contactId)?.fullName||''));}else if(a.status==='pending'){a.status='in_progress';log(req,user,'Müsahibə qaralamasını saxladı',s.title);}save();return respond(res,200,{response:r,assignment:a});}}
  m=p.match(/^\/api\/reports\/([\w-]+)$/);if(m&&method==='GET'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');const s=db.surveys.find(x=>x.id===m[1]);if(!s)return error(res,404,'Sorğu tapılmadı.');return respond(res,200,report(s,user));}
- m=p.match(/^\/api\/export\/([\w-]+)$/);if(m&&method==='GET'){
-   if(!canManage(user))return error(res,403,'İcazə yoxdur.');
-   const s=db.surveys.find(x=>x.id===m[1]);if(!s)return error(res,404,'Sorğu tapılmadı.');
-   const rep=report(s,user);
-   const rs=rep.responses;
-   const head=['№','Tarix və Saat','Növ','Respondent','Telefon','Operator / Əməkdaş','Sərf olunan vaxt','Müddət (saniyə)',...s.questions.map(q=>q.title)];
-   const rows=[head,...rs.map((r,idx)=>{
-     return [
-       idx+1,
-       r.submittedAt,
-       r.isPublic?'İctimai link':'Daxili sorğu',
-       r.contact,
-       r.phone,
-       r.agent+(r.agentUsername?' (@'+r.agentUsername+')':''),
-       formatDuration(r.durationSec),
-       r.durationSec,
-       ...s.questions.map(q=>r.answers[q.id])
-     ];
-   })];
-   rows.push([]);
-   rows.push(['--- ƏMƏKDAŞLARIN ÜMUMİ VAXT İCMALI ---']);
-   rows.push(['Əməkdaş','İstifadəçi adı','Rol','Tamamlanan sorğu sayı','Bir sorğuya orta vaxt','Ümumi sərf olunan vaxt','Cəmi saniyə']);
-   rep.userStats.forEach(u=>{
-     rows.push([u.name,u.username||'—',u.role==='admin'?'Admin':u.role==='editor'?'Redaktor':u.role==='public'?'İctimai':'Operator',u.count,formatDuration(u.avgDurationSec),formatDuration(u.totalDurationSec),u.totalDurationSec]);
-   });
-   rows.push(['CƏMİ YEKUN','—','—',rep.completed,formatDuration(rep.averageDuration),formatDuration(rep.totalDurationAll),rep.totalDurationAll]);
-   const data='\ufeff'+rows.map(row=>row.map(csvVal).join(';')).join('\r\n');
-   log(req,user,'Hesabatı CSV ixrac etdi',s.title);
-   save();
-   res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="sorgupro-'+s.id.slice(0,8)+'.csv"','Cache-Control':'no-store'});
-   return res.end(data);
- }
+  m=p.match(/^\/api\/export\/([\w-]+)$/);
+  if(m&&method==='GET'){
+    if(!canManage(user))return error(res,403,'İcazə yoxdur.');
+    const s=db.surveys.find(x=>x.id===m[1]);if(!s)return error(res,404,'Sorğu tapılmadı.');
+    const rep=report(s,user);
+    const rs=rep.responses;
+    const format = url.searchParams.get('format') || 'excel';
+
+    const head=['№','Tarix və Saat','Növ','Respondent','Telefon','Operator / Əməkdaş','Sərf olunan vaxt','Müddət (saniyə)',...s.questions.map((q,idx)=>'Sual '+(idx+1)+': '+q.title)];
+    const rows=rs.map((r,idx)=>[
+      idx+1,
+      r.submittedAt ? r.submittedAt.replace('T', ' ').slice(0, 19) : '—',
+      r.isPublic ? 'İctimai link' : 'Daxili sorğu',
+      r.contact,
+      r.phone,
+      r.agent + (r.agentUsername ? ' (@' + r.agentUsername + ')' : ''),
+      formatDuration(r.durationSec),
+      r.durationSec,
+      ...s.questions.map(q => cleanAnswerForExport(r.answers[q.id], q))
+    ]);
+
+    const sumTitle = '--- ƏMƏKDAŞLARIN ÜMUMİ VAXT VƏ İCRA İCMALI ---';
+    const sumHead = ['Əməkdaş','İstifadəçi adı','Rol','Tamamlanan sorğu sayı','Bir sorğuya orta vaxt','Ən qısa müsahibə','Ən uzun müsahibə','ÜMUMİ SƏRF OLUNAN VAXT','Cəmi saniyə','Vaxt payı (%)'];
+    const sumRows = rep.userStats.map(u => [
+      u.name,
+      u.username || '—',
+      u.role === 'admin' ? 'Admin' : u.role === 'editor' ? 'Redaktor' : u.role === 'public' ? 'İctimai' : 'Operator',
+      u.count,
+      formatDuration(u.avgDurationSec),
+      formatDuration(u.minDurationSec),
+      formatDuration(u.maxDurationSec),
+      formatDuration(u.totalDurationSec),
+      u.totalDurationSec,
+      (u.percentage || 0) + '%'
+    ]);
+    const sumTotal = ['CƏMİ YEKUN','—','—',rep.completed,formatDuration(rep.averageDuration),'—','—',formatDuration(rep.totalDurationAll),rep.totalDurationAll,'100%'];
+
+    if (format === 'csv') {
+      const csvRows = [head, ...rows, [], [sumTitle], sumHead, ...sumRows, sumTotal];
+      const data = '\ufeff' + csvRows.map(row => row.map(csvVal).join(';')).join('\r\n');
+      log(req, user, 'Hesabatı CSV ixrac etdi', s.title);
+      save();
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="sorgupro-' + s.id.slice(0, 8) + '.csv"',
+        'Cache-Control': 'no-store'
+      });
+      return res.end(data);
+    }
+
+    const excelHtml = buildExcelTable({
+      title: s.title + ' — Ətraflı Sorğu Hesabatı',
+      meta: 'İxrac tarixi: ' + iso().replace('T', ' ').slice(0, 19) + ' | Cəmi respondent: ' + rep.completed + ' | Ümumi vaxt: ' + formatDuration(rep.totalDurationAll),
+      headers: head,
+      rows: rows,
+      summaryTitle: sumTitle,
+      summaryHeaders: sumHead,
+      summaryRows: sumRows,
+      summaryTotal: sumTotal
+    });
+    log(req, user, 'Hesabatı Excel (.xls) ixrac etdi', s.title);
+    save();
+    res.writeHead(200, {
+      'Content-Type': 'application/vnd.ms-excel; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="Hesabat-' + s.id.slice(0, 8) + '.xls"',
+      'Cache-Control': 'no-store'
+    });
+    return res.end(excelHtml);
+  }
+  if(p==='/api/export-contacts'&&method==='GET'){
+    if(!canManage(user))return error(res,403,'İcazə yoxdur.');
+    const sId = url.searchParams.get('surveyId');
+    const format = url.searchParams.get('format') || 'excel';
+    let list = sId ? db.contacts.filter(c => c.surveyId === sId) : db.contacts;
+    const head = ['№', 'Ad və Soyad', 'Telefon', 'Sorğu Sektoru', 'Region', 'E-poçt', 'Qeydlər', 'Qeydiyyat Tarixi'];
+    const rows = list.map((c, idx) => {
+      const sObj = db.surveys.find(s => s.id === c.surveyId);
+      return [
+        idx + 1,
+        c.fullName,
+        c.phone,
+        sObj ? sObj.title : 'Ümumi sektor',
+        c.region || '—',
+        c.email || '—',
+        c.notes || '—',
+        c.createdAt ? c.createdAt.slice(0, 10) : '—'
+      ];
+    });
+    if (format === 'csv') {
+      const csvData = '\ufeff' + [head, ...rows].map(row => row.map(csvVal).join(';')).join('\r\n');
+      log(req, user, 'Respondent bazasını CSV ixrac etdi', list.length + ' kontakt');
+      save();
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="respondent-bazasi.csv"',
+        'Cache-Control': 'no-store'
+      });
+      return res.end(csvData);
+    }
+    const excelHtml = buildExcelTable({
+      title: 'SorğuPro — Respondent Bazası Reyestri',
+      meta: 'İxrac tarixi: ' + iso().replace('T', ' ').slice(0, 19) + ' | Cəmi respondent sayı: ' + list.length + (sId ? ' | Sektor: ' + (db.surveys.find(s => s.id === sId)?.title || '') : ''),
+      headers: head,
+      rows: rows
+    });
+    log(req, user, 'Respondent bazasını Excel (.xls) ixrac etdi', list.length + ' kontakt');
+    save();
+    res.writeHead(200, {
+      'Content-Type': 'application/vnd.ms-excel; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="Respondent-Bazasi.xls"',
+      'Cache-Control': 'no-store'
+    });
+    return res.end(excelHtml);
+  }
+  if(p==='/api/export-audit'&&method==='GET'){
+    if(!canManage(user))return error(res,403,'İcazə yoxdur.');
+    const format = url.searchParams.get('format') || 'excel';
+    const list = db.audit.slice(0, 3000);
+    const head = ['№', 'Tarix və Saat', 'Əməkdaş', 'İstifadəçi adı', 'Rol', 'IP Ünvanı', 'Hərəkət / Əməliyyat', 'Obyekt', 'Təfərrüat'];
+    const rows = list.map((a, idx) => [
+      idx + 1,
+      a.createdAt ? a.createdAt.replace('T', ' ').slice(0, 19) : '—',
+      a.userName || '—',
+      a.username || '—',
+      a.role === 'admin' ? 'Admin' : a.role === 'editor' ? 'Redaktor' : a.role === 'public' ? 'İctimai' : 'Operator',
+      a.ip || '—',
+      a.action || '—',
+      a.entity || '—',
+      a.details || '—'
+    ]);
+    if (format === 'csv') {
+      const csvData = '\ufeff' + [head, ...rows].map(row => row.map(csvVal).join(';')).join('\r\n');
+      log(req, user, 'Audit tarixçəsini CSV ixrac etdi', list.length + ' qeyd');
+      save();
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="audit-tarixcesi.csv"',
+        'Cache-Control': 'no-store'
+      });
+      return res.end(csvData);
+    }
+    const excelHtml = buildExcelTable({
+      title: 'SorğuPro — Fəaliyyət Tarixçəsi və Audit Qeydləri',
+      meta: 'İxrac tarixi: ' + iso().replace('T', ' ').slice(0, 19) + ' | Cəmi qeyd: ' + list.length,
+      headers: head,
+      rows: rows
+    });
+    log(req, user, 'Audit tarixçəsini Excel (.xls) ixrac etdi', list.length + ' qeyd');
+    save();
+    res.writeHead(200, {
+      'Content-Type': 'application/vnd.ms-excel; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="Audit-Tarixcesi.xls"',
+      'Cache-Control': 'no-store'
+    });
+    return res.end(excelHtml);
+  }
  if(p==='/api/users'&&method==='GET'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');return respond(res,200,{users:db.users.map(redacted)});}
  if(p==='/api/users'&&method==='POST'){if(user.role!=='admin')return error(res,403,'Yalnız administrator istifadəçi yarada bilər.');const d=await readBody(req),username=cleanText(d.username,60);if(!/^[a-zA-Z0-9._-]{3,40}$/.test(username))return error(res,400,'İstifadəçi adı 3–40 simvol, latın hərfləri və rəqəmlərdən ibarət olmalıdır.');if(db.users.some(u=>u.username.toLowerCase()===username.toLowerCase()))return error(res,409,'İstifadəçi adı artıq mövcuddur.');if(typeof d.password!=='string'||d.password.length<10)return error(res,400,'Şifrə ən azı 10 simvol olmalıdır.');const role=['admin','editor','agent'].includes(d.role)?d.role:'agent';const u={id:uid(),username,name:cleanText(d.name,100)||username,role,passwordHash:hashPass(d.password),active:true,createdAt:iso()};db.users.push(u);log(req,user,'Yeni istifadəçi yaratdı',u.name+' (@'+u.username+', rol: '+role+')');save();return respond(res,201,{user:redacted(u)});}
  m=p.match(/^\/api\/users\/([\w-]+)$/);if(m&&method==='PUT'){if(user.role!=='admin')return error(res,403,'Yalnız administrator istifadəçi redaktə edə bilər.');const u=db.users.find(x=>x.id===m[1]);if(!u)return error(res,404,'İstifadəçi tapılmadı.');const d=await readBody(req);if('name'in d)u.name=cleanText(d.name,120);if('active'in d){if(u.id===user.id&&!d.active)return error(res,400,'Öz hesabınızı deaktiv edə bilməzsiniz.');u.active=!!d.active;}if('role'in d&&['admin','editor','agent'].includes(d.role)){if(u.id===user.id&&d.role!=='admin')return error(res,400,'Öz admin rolunuzu dəyişə bilməzsiniz.');u.role=d.role;}if('password'in d){if(typeof d.password!=='string'||d.password.length<10)return error(res,400,'Şifrə ən azı 10 simvol olmalıdır.');u.passwordHash=hashPass(d.password);db.sessions=db.sessions.filter(s=>s.userId!==u.id);}log(req,user,'İstifadəçi hesabını yenilədi',u.name+' (@'+u.username+')');save();return respond(res,200,{user:redacted(u)});}
