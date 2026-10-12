@@ -417,3 +417,66 @@ test('Admin and Editor edit survey structure, modify operator response sheets, a
   assert.ok(html.includes('2 dəq 15 san'), 'Updated duration formatted appears in Excel');
 });
 
+test('Survey deletion (DELETE /api/surveys/:id): admin/editor can delete survey, operator cannot, and audit logs event', async t => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sorgu-delete-survey-test-'));
+  t.after(() => {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  });
+
+  const { base, stop } = await startServer(tmpDir);
+  t.after(() => stop());
+
+  const adminAuth = await login(base, 'admin', 'UnitTest@2026!');
+  const editorAuth = await login(base, 'redaktor1', 'Editor@2026!');
+  const opAuth = await login(base, 'operator1', 'Agent@2026!');
+
+  // 1. Create a survey to test deletion
+  const createRes = await fetch(`${base}/api/surveys`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: adminAuth.cookie },
+    body: JSON.stringify({
+      title: 'Silinəcək Sorğu Əsas Test',
+      category: 'Test',
+      status: 'active',
+      access: 'public',
+      sections: [{ id: 'sec-del', title: 'Bölmə 1' }],
+      questions: [{ id: 'q-del', sectionId: 'sec-del', type: 'single', title: 'Sual 1', options: [{ id: 'o1', label: 'Bəli' }] }]
+    })
+  });
+  assert.equal(createRes.status, 201);
+  const surveyId = (await createRes.json()).survey.id;
+
+  // 2. Operator attempt to delete must be forbidden (403)
+  const opDelRes = await fetch(`${base}/api/surveys/${surveyId}`, {
+    method: 'DELETE',
+    headers: { Cookie: opAuth.cookie }
+  });
+  assert.equal(opDelRes.status, 403);
+
+  // 3. Editor deletes survey successfully (200)
+  const edDelRes = await fetch(`${base}/api/surveys/${surveyId}`, {
+    method: 'DELETE',
+    headers: { Cookie: editorAuth.cookie }
+  });
+  assert.equal(edDelRes.status, 200);
+  const edDelJson = await edDelRes.json();
+  assert.equal(edDelJson.ok, true);
+  assert.equal(edDelJson.deleted, surveyId);
+
+  // 4. Survey should not be found (404)
+  const getRes = await fetch(`${base}/api/surveys/${surveyId}`, {
+    headers: { Cookie: adminAuth.cookie }
+  });
+  assert.equal(getRes.status, 404);
+
+  // 5. Audit log records 'Sorğunu sildi'
+  const auditRes = await fetch(`${base}/api/audit`, {
+    headers: { Cookie: adminAuth.cookie }
+  });
+  assert.equal(auditRes.status, 200);
+  const auditList = (await auditRes.json()).audit;
+  const delAudit = auditList.find(a => a.action === 'Sorğunu sildi' && a.entity === 'Silinəcək Sorğu Əsas Test');
+  assert.ok(delAudit, 'Deletion audit event is logged');
+  assert.equal(delAudit.userName, 'Samir Babayev (Redaktor)');
+});
+

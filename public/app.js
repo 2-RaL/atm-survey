@@ -209,9 +209,11 @@ function route(){
     let target=allowed.includes(p)?p:(isLeader()?'dashboard':'surveys');
     if(target==='builder'&&!state.builder){
       target=isLeader()?'dashboard':'surveys';
+      if(location.hash!=='#/'+target)location.hash='#/'+target;
     }
     if(target==='interview'&&!state.interview){
-      target='surveys';
+      target=isLeader()?'dashboard':'surveys';
+      if(location.hash!=='#/'+target)location.hash='#/'+target;
     }
     state.page=target;
     render();
@@ -350,7 +352,7 @@ function dashboardPage(){
                 </div>
                 <h4 style="margin:0 0 6px 0;font-size:16px;font-weight:700">${esc(s.title)}</h4>
                 <p style="font-size:12px;color:#64748b;margin:0 0 14px 0;line-height:1.4">${esc(s.description||'Müsahibəyə başlamaq üçün düyməni sıxın.')}</p>
-                <button class="btn btn-primary w100" data-action="start-survey" data-id="${s.id}">
+                <button type="button" class="btn btn-primary w100" data-action="start-survey" data-id="${s.id}">
                   ${ico('phone',15)} Sorğuya başla
                 </button>
               </div>
@@ -458,14 +460,15 @@ function surveysPage(){
           `:''}
           <div class="survey-actions" style="margin-top:16px;display:flex;gap:7px;flex-wrap:wrap">
             ${s.status==='active'?`
-              <button class="btn btn-primary" style="flex:2" data-action="start-survey" data-id="${s.id}">
+              <button type="button" class="btn btn-primary" style="flex:2" data-action="start-survey" data-id="${s.id}">
                 ${ico('phone',15)} Sorğuya başla
               </button>
             `:''}
             ${leader?`
-              <button class="btn" style="flex:1" data-action="edit-survey" data-id="${s.id}">${ico('edit',14)} Redaktə</button>
-              <button class="btn btn-icon" title="Surətini yarat" data-action="duplicate-survey" data-id="${s.id}">${ico('copy',15)}</button>
-              <button class="btn btn-icon" title="Statusu dəyiş" data-action="survey-status" data-id="${s.id}">${ico('more',16)}</button>
+              <button type="button" class="btn" style="flex:1" data-action="edit-survey" data-id="${s.id}">${ico('edit',14)} Redaktə</button>
+              <button type="button" class="btn btn-icon" title="Surətini yarat" data-action="duplicate-survey" data-id="${s.id}">${ico('copy',15)}</button>
+              <button type="button" class="btn btn-icon" title="Statusu dəyiş" data-action="survey-status" data-id="${s.id}">${ico('more',16)}</button>
+              <button type="button" class="btn btn-icon btn-danger" title="Sorğunu sil" data-action="delete-survey" data-id="${s.id}">${ico('trash',15)}</button>
             `:''}
           </div>
         </article>
@@ -1150,8 +1153,12 @@ function activeQuestions(){
 
 // ——— DIRECT SURVEY INTERVIEW FLOW ———
 function startDirectInterview(surveyId){
+  if(!surveyId){
+    const firstActive=state.surveys.find(s=>s.status==='active');
+    surveyId=firstActive?.id;
+  }
   const survey=state.surveys.find(s=>s.id===surveyId);
-  if(!survey)return notify('Sorğu tapılmadı.',true);
+  if(!survey)return notify('Aktiv sorğu tapılmadı.',true);
   state.interview={
     survey,
     respondentName:'',
@@ -1161,9 +1168,11 @@ function startDirectInterview(surveyId){
   };
   state.interviewIndex=0;
   state.interviewDone=false;
-  state.page='interview';
   state.dirty=false;
-  location.hash='#/interview';
+  state.page='interview';
+  if(location.hash!=='#/interview'){
+    location.hash='#/interview';
+  }
   render();
   window.scrollTo(0,0);
 }
@@ -1640,13 +1649,23 @@ function passwordModal(){
 function statusModal(id){
   const s=state.surveys.find(s=>s.id===id);
   if(!s)return;
-  openModal('Sorğu statusu','Aktiv sorğular operatorlara və link paylaşılanlara görünür.',`
+  openModal('Sorğu statusu və idarəetmə','Statusu dəyişin və ya sorğunu sistemdən tamamilə silin.',`
     <input type="hidden" name="id" value="${esc(id)}">
     <div class="field">
       <label>Yeni status</label>
       <select name="status">
         ${['draft','active','paused','archived'].map(x=>`<option value="${x}" ${s.status===x?'selected':''}>${OUTCOME[x]}</option>`).join('')}
       </select>
+    </div>
+    <div class="separator" style="margin:20px 0 16px"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:#fff1f2;border:1px solid #ffdbe0;border-radius:10px">
+      <div>
+        <strong style="color:#d94c5c;font-size:12px;display:block">Sorğunu birdəfəlik sil</strong>
+        <span style="color:#64748b;font-size:11px">Bu sorğu və əlaqəli məlumatlar tamamilə silinəcək</span>
+      </div>
+      <button type="button" class="btn btn-danger btn-sm" data-action="delete-survey" data-id="${esc(id)}">
+        ${ico('trash',13)} Sorğunu sil
+      </button>
     </div>`,'status');
 }
 
@@ -1801,9 +1820,27 @@ async function dispatchAction(el){
       case'close-mobile':state.mobile=false;render();break;
       case'logout':await api('/api/logout',{});state.user=null;state.report=null;state.builder=null;location.hash='';renderLogin();notify('Hesabdan çıxış edildi.');break;
       case'refresh':await refresh();render();notify('Məlumatlar yeniləndi.');break;
-      case'start-survey':startDirectInterview(id);break;
-      case'next-direct-interview':startDirectInterview(id||state.interview?.survey?.id);break;
+      case'start-survey':startDirectInterview(id||el.dataset.id||el.getAttribute('data-id'));break;
+      case'next-direct-interview':startDirectInterview(id||el.dataset.id||state.interview?.survey?.id);break;
       case'start-survey-with-contact':startDirectInterview(el.dataset.surveyId);break;
+      case'delete-survey':{
+        if(!isLeader()){notify('Sorğunu yalnız administrator və ya redaktor silə bilər.',true);break;}
+        const surveyId=id||el.dataset.id||el.getAttribute('data-id');
+        const survey=state.surveys.find(s=>s.id===surveyId);
+        const title=survey?.title||'bu sorğu';
+        if(!confirm(`"${title}" adlı sorğunu sistemdən tamamilə silmək istədiyinizə əminsiniz? Bu əməliyyat geri qaytarıla bilməz.`))break;
+        await api('/api/surveys/'+surveyId,{},'DELETE');
+        closeModal();
+        await refresh();
+        if(state.page==='interview'&&state.interview?.survey?.id===surveyId){
+          state.interview=null;
+          navigate('surveys');
+        }else{
+          render();
+        }
+        notify('Sorğu sistemdən uğurla silindi.');
+        break;
+      }
       case'new-survey':{
         const newSecId=mkId();
         const s={title:'Yeni sorğu',description:'',category:'Ümumi',status:'draft',access:'public',estimatedMinutes:5,sections:[{id:newSecId,title:'Bölmə 1',description:''}],questions:[{id:mkId(),sectionId:newSecId,type:'single',title:'İlk sual',description:'',required:true,options:[{id:mkId(),label:'Variant 1',image:''},{id:mkId(),label:'Variant 2',image:''}],rows:[],columns:[],settings:{},condition:null}]};
@@ -2103,7 +2140,12 @@ window.addEventListener('hashchange',()=>{
   const hash=location.hash||'';
   const pubMatch=hash.match(/^#\/s\/([\w-]+)/);
   if(pubMatch){loadPublicSurvey(pubMatch[1]);}
-  else if(state.user){route();}
+  else if(state.user){
+    if(hash==='#/interview'&&state.page==='interview'&&state.interview){
+      return;
+    }
+    route();
+  }
   else{renderLogin();}
 });
 
