@@ -206,8 +206,14 @@ function route(){
   const p=hash.match(/^#\/([\w-]+)/)?.[1]||(isLeader()?'dashboard':'surveys');
   if(state.user){
     const allowed=['dashboard','surveys','reports','team','audit','settings','builder','interview'];
-    state.page=allowed.includes(p)?p:(isLeader()?'dashboard':'surveys');
-    if(state.page==='builder'||state.page==='interview')state.page=isLeader()?'dashboard':'surveys';
+    let target=allowed.includes(p)?p:(isLeader()?'dashboard':'surveys');
+    if(target==='builder'&&!state.builder){
+      target=isLeader()?'dashboard':'surveys';
+    }
+    if(target==='interview'&&!state.interview){
+      target='surveys';
+    }
+    state.page=target;
     render();
   }
 }
@@ -661,7 +667,12 @@ function reportDetail(){
                         ${ico('clock',13)} ${formatTimeSpent(x.durationSec)}
                       </span>
                     </td>
-                    <td><button class="btn btn-sm" data-action="response-details" data-id="${x.id}">${ico('eye',14)} Cavablar</button></td>
+                    <td>
+                      <div style="display:flex;gap:6px">
+                        <button class="btn btn-sm" data-action="response-details" data-id="${x.id}" title="Cavablara bax">${ico('eye',14)} Bax</button>
+                        ${leader?`<button class="btn btn-sm btn-primary" data-action="edit-response-sheet" data-id="${x.id}" title="Sorğu vərəqəsini redaktə et">${ico('edit',14)} Redaktə</button>`:''}
+                      </div>
+                    </td>
                   </tr>
                 `).join('')||'<tr><td colspan="7">Cavab tapılmadı.</td></tr>'}
               </tbody>
@@ -1645,8 +1656,9 @@ function responseDetails(id){
   const survey=state.surveys.find(s=>s.id===state.report.survey.id);
   openModal('Müsahibə cavabları və vaxtı',`${r.contact} · ${fmtTime(r.submittedAt)} · Sərf olunan vaxt: ${formatTimeSpent(r.durationSec)}`,
     `<div style="max-height:55vh;overflow:auto">
-      <div class="highlight-box" style="margin-bottom:14px">
-        Əməkdaş: <b>${esc(r.agent)}</b> &nbsp;|&nbsp; Müddət: <b>${formatTimeSpent(r.durationSec)}</b>
+      <div class="highlight-box" style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div>Əməkdaş: <b>${esc(r.agent)}</b> &nbsp;|&nbsp; Müddət: <b>${formatTimeSpent(r.durationSec)}</b></div>
+        ${isLeader()?`<button type="button" class="btn btn-sm btn-primary" data-action="edit-response-sheet" data-id="${r.id}">${ico('edit',13)} Sorğu vərəqəsini redaktə et</button>`:''}
       </div>
       ${survey.questions.map((q,i)=>`
         <div class="info-pair" style="display:block">
@@ -1656,6 +1668,84 @@ function responseDetails(id){
       `).join('')}
     </div>`,'read-only');
   $('.modal-foot')?.remove();
+}
+
+function renderQuestionEditField(q, ans){
+  if(q.options&&q.options.length&&q.type==='single'){
+    return `
+      <select data-qans="${q.id}">
+        <option value="">-- Seçilməyib --</option>
+        ${q.options.map(o=>`<option value="${esc(o.label)}" ${ans===o.label?'selected':''}>${esc(o.label)}</option>`).join('')}
+      </select>
+    `;
+  }
+  if(q.options&&q.options.length&&q.type==='multiple'){
+    const arr=Array.isArray(ans)?ans:(ans?[ans]:[]);
+    return `
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${q.options.map(o=>`
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" data-qans-multi="${q.id}" value="${esc(o.label)}" ${arr.includes(o.label)?'checked':''}>
+            <span>${esc(o.label)}</span>
+          </label>
+        `).join('')}
+      </div>
+    `;
+  }
+  if(q.type&&q.type.startsWith('matrix')){
+    const jsonStr=typeof ans==='object'&&ans?JSON.stringify(ans,null,2):(ans||'');
+    return `
+      <textarea data-qans="${q.id}" rows="3" style="font-family:monospace;font-size:12px" placeholder='JSON formatında (Məs: {"Sətir 1": "Cavab 1"})'>${esc(jsonStr)}</textarea>
+    `;
+  }
+  if(['paragraph','multitext'].includes(q.type)){
+    return `<textarea data-qans="${q.id}" rows="3">${esc(ans??'')}</textarea>`;
+  }
+  return `<input data-qans="${q.id}" value="${esc(ans??'')}">`;
+}
+
+function editResponseSheetModal(id){
+  closeModal();
+  const r=state.report?.responses?.find(x=>x.id===id);
+  if(!r)return notify('Müsahibə qeydi tapılmadı.',true);
+  const survey=state.surveys.find(s=>s.id===state.report.survey.id);
+  if(!survey)return notify('Sorğu tapılmadı.',true);
+
+  const body=`
+    <input type="hidden" name="responseId" value="${r.id}">
+    <div class="highlight-box" style="margin-bottom:14px">
+      Operator: <b>${esc(r.agent)}</b> &nbsp;|&nbsp; Tarix: <b>${fmtTime(r.submittedAt)}</b>
+    </div>
+    <div class="grid cols-2" style="gap:12px;margin-bottom:14px">
+      <div class="field">
+        <label>Respondent adı / qeyd</label>
+        <input name="respondentName" value="${esc(r.contact||'')}">
+      </div>
+      <div class="field">
+        <label>Əlaqə telefonu</label>
+        <input name="respondentPhone" value="${esc(r.phone==='—'?'':r.phone||'')}">
+      </div>
+    </div>
+    <div class="field" style="margin-bottom:16px">
+      <label>Sərf olunan vaxt (saniyə)</label>
+      <input type="number" name="durationSec" min="0" max="86400" value="${r.durationSec||0}">
+    </div>
+    <div class="separator" style="margin:16px 0"></div>
+    <h4 style="margin:0 0 12px 0;font-size:15px;color:#1e1b4b">Suallar və Operatorun qeyd etdiyi cavablar:</h4>
+    <div style="max-height:42vh;overflow-y:auto;padding-right:6px">
+      ${survey.questions.map((q,i)=>{
+        const ans=r.answers?.[q.id];
+        return `
+          <div class="field" style="margin-bottom:14px;background:#f8fafc;padding:12px;border-radius:8px;border:1px solid #e2e8f0">
+            <label style="font-weight:700;color:#0f172a;margin-bottom:6px">${i+1}. ${esc(q.title)} <span style="font-weight:normal;color:#64748b">(${typeLabel(q.type)})</span></label>
+            ${renderQuestionEditField(q, ans)}
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  openModal('Sorğu vərəqəsini redaktə et', `№${r.seqNumber||'—'} · ${r.contact}`, body, 'edit-response');
 }
 
 function csvParse(text,delimiter=','){
@@ -1715,7 +1805,8 @@ async function dispatchAction(el){
       case'next-direct-interview':startDirectInterview(id||state.interview?.survey?.id);break;
       case'start-survey-with-contact':startDirectInterview(el.dataset.surveyId);break;
       case'new-survey':{
-        const s={title:'Yeni sorğu',description:'',category:'Ümumi',status:'draft',access:'public',estimatedMinutes:5,sections:[{id:mkId(),title:'Bölmə 1',description:''}],questions:[]};
+        const newSecId=mkId();
+        const s={title:'Yeni sorğu',description:'',category:'Ümumi',status:'draft',access:'public',estimatedMinutes:5,sections:[{id:newSecId,title:'Bölmə 1',description:''}],questions:[{id:mkId(),sectionId:newSecId,type:'single',title:'İlk sual',description:'',required:true,options:[{id:mkId(),label:'Variant 1',image:''},{id:mkId(),label:'Variant 2',image:''}],rows:[],columns:[],settings:{},condition:null}]};
         const r=await api('/api/surveys',s);await refresh();makeBuilder(r.survey);notify('Yeni sorğu yaradıldı.');break;
       }
       case'edit-survey':{const s=state.surveys.find(x=>x.id===id);if(s)makeBuilder(s);break;}
@@ -1738,6 +1829,7 @@ async function dispatchAction(el){
       case'close-report':state.report=null;render();break;
       case'report-tab':state.reportTab=el.dataset.tab;render();break;
       case'response-details':responseDetails(id);break;
+      case'edit-response-sheet':editResponseSheetModal(id);break;
       case'export-report':
       case'export-report-excel':window.location.href='/api/export/'+id+'?format=excel';notify('Excel (.xls) ixracı başlanıldı.');break;
       case'export-report-csv':window.location.href='/api/export/'+id+'?format=csv';notify('CSV ixracı başlanıldı.');break;
@@ -1827,6 +1919,45 @@ async function handleForm(form){
       const s=state.surveys.find(s=>s.id===values.id);
       await api('/api/surveys/'+s.id,{...s,status:values.status},'PUT');
       notify('Sorğu statusu dəyişdirildi.');
+    }
+    else if(kind==='edit-response'){
+      const respId=values.responseId;
+      const surveyId=state.report?.survey?.id;
+      const survey=state.surveys.find(s=>s.id===surveyId);
+      const answers={};
+      form.querySelectorAll('[data-qans]').forEach(input=>{
+        const qid=input.dataset.qans;
+        const val=input.value.trim();
+        const q=survey?.questions.find(x=>x.id===qid);
+        if(q&&q.type.startsWith('matrix')){
+          try{answers[qid]=JSON.parse(val);}catch{answers[qid]=val;}
+        }else if(q&&['number','currency','percentage'].includes(q.type)){
+          answers[qid]=val===''?'':Number(val);
+        }else{
+          answers[qid]=val;
+        }
+      });
+      const multiGroups={};
+      form.querySelectorAll('[data-qans-multi]:checked').forEach(cb=>{
+        const qid=cb.dataset.qansMulti;
+        if(!multiGroups[qid])multiGroups[qid]=[];
+        multiGroups[qid].push(cb.value);
+      });
+      survey?.questions.filter(q=>q.type==='multiple').forEach(q=>{
+        answers[q.id]=multiGroups[q.id]||[];
+      });
+
+      const data={
+        respondentName: values.respondentName,
+        respondentPhone: values.respondentPhone,
+        durationSec: Number(values.durationSec)||0,
+        answers
+      };
+      await api('/api/responses/'+respId, data, 'PUT');
+      if(surveyId) state.report=await request('/api/reports/'+surveyId);
+      closeModal();
+      render();
+      notify('Sorğu vərəqəsi uğurla yeniləndi.');
     }
     else if(kind==='password'){
       if(values.newPassword!==values.confirm)throw Error('Yeni şifrələr uyğun gəlmir.');

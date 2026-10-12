@@ -297,3 +297,123 @@ test('Concurrent multi-operator submissions: sequential ordering, zero data loss
     assert.ok(expHtml.includes(`Respondent N${i}`), `Excel export includes Respondent N${i}`);
   }
 });
+
+test('Admin and Editor edit survey structure, modify operator response sheets, and export matrix criteria on separate rows', async t => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sorgu-edit-sheet-test-'));
+  t.after(() => {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  });
+
+  const { base, stop } = await startServer(tmpDir);
+  t.after(() => stop());
+
+  const adminAuth = await login(base, 'admin', 'UnitTest@2026!');
+  const editorAuth = await login(base, 'redaktor1', 'Editor@2026!');
+  const opAuth = await login(base, 'operator1', 'Agent@2026!');
+
+  // 1. Editor creates a new survey with matrix question
+  const createRes = await fetch(`${base}/api/surveys`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: editorAuth.cookie },
+    body: JSON.stringify({
+      title: 'İctimai Xidmət Matrisi',
+      status: 'active',
+      access: 'public',
+      sections: [{ id: 'sec-m', title: 'Matris Bölməsi' }],
+      questions: [
+        {
+          id: 'q-matrix',
+          sectionId: 'sec-m',
+          type: 'matrix',
+          title: 'Göstəricilər üzrə qiymətləndirmə',
+          required: true,
+          rows: ['Meyar 1: Sürət', 'Meyar 2: Keyfiyyət', 'Meyar 3: Dəstək'],
+          columns: ['Pis', 'Orta', 'Yaxşı', 'Əla']
+        }
+      ]
+    })
+  });
+  assert.equal(createRes.status, 201);
+  const surv = (await createRes.json()).survey;
+  const sId = surv.id;
+
+  // 2. Editor edits survey structure (adds a new section and question)
+  surv.title = 'İctimai Xidmət Matrisi (Yenilənmiş)';
+  surv.questions.push({
+    id: 'q-text',
+    sectionId: 'sec-m',
+    type: 'short_text',
+    title: 'Əlavə Təklifiniz',
+    required: false
+  });
+  const updateRes = await fetch(`${base}/api/surveys/${sId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Cookie: editorAuth.cookie },
+    body: JSON.stringify(surv)
+  });
+  assert.equal(updateRes.status, 200);
+  const updatedSurv = (await updateRes.json()).survey;
+  assert.equal(updatedSurv.title, 'İctimai Xidmət Matrisi (Yenilənmiş)');
+  assert.equal(updatedSurv.questions.length, 2);
+
+  // 3. Operator submits an interview response sheet
+  const submitRes = await fetch(`${base}/api/surveys/${sId}/responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: opAuth.cookie },
+    body: JSON.stringify({
+      respondentName: 'Kamil Vəliyev',
+      respondentPhone: '+994501234567',
+      durationSec: 120,
+      answers: {
+        'q-matrix': {
+          'Meyar 1: Sürət': 'Yaxşı',
+          'Meyar 2: Keyfiyyət': 'Əla',
+          'Meyar 3: Dəstək': 'Orta'
+        },
+        'q-text': 'Hər şey qaydasındadır'
+      },
+      status: 'completed'
+    })
+  });
+  assert.equal(submitRes.status, 201);
+  const respObj = (await submitRes.json()).response;
+  const respId = respObj.id;
+
+  // 4. Editor modifies the operator's submitted response sheet
+  const editSheetRes = await fetch(`${base}/api/responses/${respId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Cookie: editorAuth.cookie },
+    body: JSON.stringify({
+      respondentName: 'Kamil Vəliyev (Düzəliş)',
+      respondentPhone: '+994507654321',
+      durationSec: 135,
+      answers: {
+        'q-matrix': {
+          'Meyar 1: Sürət': 'Əla',
+          'Meyar 2: Keyfiyyət': 'Əla',
+          'Meyar 3: Dəstək': 'Əla'
+        },
+        'q-text': 'Xidmətlər tamamilə əladır'
+      }
+    })
+  });
+  assert.equal(editSheetRes.status, 200);
+  const editedResp = (await editSheetRes.json()).response;
+  assert.equal(editedResp.contactName, 'Kamil Vəliyev (Düzəliş)');
+  assert.equal(editedResp.contactPhone, '+994507654321');
+  assert.equal(editedResp.durationSec, 135);
+  assert.equal(editedResp.answers['q-matrix']['Meyar 1: Sürət'], 'Əla');
+
+  // 5. Check Excel export puts each matrix criterion on its own separate row
+  const excelExp = await fetch(`${base}/api/export/${sId}?format=excel`, {
+    headers: { Cookie: adminAuth.cookie }
+  });
+  assert.equal(excelExp.status, 200);
+  const html = await excelExp.text();
+  assert.ok(html.includes('Meyar 1: Sürət'), 'Criterion 1 is listed on its own row');
+  assert.ok(html.includes('Meyar 2: Keyfiyyət'), 'Criterion 2 is listed on its own row');
+  assert.ok(html.includes('Meyar 3: Dəstək'), 'Criterion 3 is listed on its own row');
+  assert.ok(html.includes('Kamil Vəliyev (Düzəliş)'), 'Modified response name appears in Excel');
+  assert.ok(html.includes('2 dəq 15 san'), 'Updated duration formatted appears in Excel');
+});
+

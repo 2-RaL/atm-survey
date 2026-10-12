@@ -497,6 +497,37 @@ if(p==='/api/login'&&method==='POST'){
  if(m&&method==='POST'){const a=db.assignments.find(x=>x.id===m[1]);if(!a)return error(res,404,'Təyinat tapılmadı.');if(!canManage(user)&&a.assignedTo!==user.id)return error(res,403,'İcazə yoxdur.');const d=await readBody(req);if(!statusSet.includes(d.outcome))return error(res,400,'Zəng nəticəsini seçin.');if(d.outcome==='completed'&&!db.responses.some(r=>r.assignmentId===a.id&&r.status==='completed'))return error(res,400,'Tamamlandı statusu üçün sorğunu yekunlaşdırın.');const call={id:uid(),assignmentId:a.id,agentId:user.id,outcome:d.outcome,notes:cleanText(d.notes,2000),durationSec:Math.max(0,Math.min(36000,Number(d.durationSec)||0)),createdAt:iso()};db.callLogs.unshift(call);a.status=d.outcome;a.notes=call.notes;a.attempts++;a.lastCallAt=iso();a.updatedAt=iso();if('callbackAt'in d)a.callbackAt=d.callbackAt&& !isNaN(Date.parse(d.callbackAt))?new Date(d.callbackAt).toISOString():null;log(req,user,'Zəng nəticəsi qeyd etdi',d.outcome,'Tapşırıq: '+a.id);save();return respond(res,201,{call,assignment:a});}
  if(m&&method==='GET'){const a=db.assignments.find(x=>x.id===m[1]);if(!a||!canManage(user)&&a.assignedTo!==user.id)return error(res,404,'Təyinat tapılmadı.');return respond(res,200,{calls:db.callLogs.filter(x=>x.assignmentId===a.id)});}
  if(p==='/api/responses'&&method==='GET'){return respond(res,200,{responses:filteredResponses(user).map(r=>({...r,survey:db.surveys.find(s=>s.id===r.surveyId)?.title,contact:db.contacts.find(c=>c.id===r.contactId)?.fullName||r.contactName,agent:db.users.find(u=>u.id===r.agentId)?.name}))});}
+ let mSingleResp=p.match(/^\/api\/responses\/([\w-]+)$/);
+ if(mSingleResp&&method==='PUT'){
+   if(!canManage(user))return error(res,403,'İcazə yoxdur. Yalnız administrator və redaktor sorğu vərəqəsini redaktə edə bilər.');
+   const r=db.responses.find(x=>x.id===mSingleResp[1]);
+   if(!r)return error(res,404,'Sorğu vərəqəsi tapılmadı.');
+   const s=db.surveys.find(x=>x.id===r.surveyId);
+   if(!s)return error(res,404,'Əlaqəli sorğu tapılmadı.');
+   const d=await readBody(req);
+   if(d.answers&&typeof d.answers==='object'){
+     const answers=answerSanitize(d.answers,s);
+     for(const q of s.questions)if(!visible(q,answers))delete answers[q.id];
+     r.answers=answers;
+   }
+   if(d.contactName!==undefined||d.respondentName!==undefined)r.contactName=cleanText(d.contactName??d.respondentName,150);
+   if(d.contactPhone!==undefined||d.respondentPhone!==undefined)r.contactPhone=cleanText(d.contactPhone??d.respondentPhone,50);
+   if(d.durationSec!==undefined){
+     r.durationSec=Math.max(0,Math.min(86400,Number(d.durationSec)||0));
+     r.durationFormatted=formatDuration(r.durationSec);
+   }
+   if(d.notes!==undefined)r.notes=cleanText(d.notes,2000);
+   r.updatedAt=iso();
+   log(req,user,'Sorğu vərəqəsini redaktə etdi',s.title,'Sıra: #'+(r.seqNumber||'—')+' · Respondent: '+(r.contactName||'—'));
+   save();
+   return respond(res,200,{ok:true,response:r});
+ }
+ if(mSingleResp&&method==='GET'){
+   const r=db.responses.find(x=>x.id===mSingleResp[1]);
+   if(!r)return error(res,404,'Sorğu vərəqəsi tapılmadı.');
+   const s=db.surveys.find(x=>x.id===r.surveyId);
+   return respond(res,200,{response:r,survey:s});
+ }
  m=p.match(/^\/api\/responses\/assignment\/([\w-]+)$/);
  if(m){const a=db.assignments.find(x=>x.id===m[1]);if(!a||!canManage(user)&&a.assignedTo!==user.id)return error(res,404,'Təyinat tapılmadı.');const s=db.surveys.find(x=>x.id===a.surveyId);let r=db.responses.find(x=>x.assignmentId===a.id);if(method==='GET')return respond(res,200,{assignment:a,contact:db.contacts.find(c=>c.id===a.contactId),survey:s,response:r||null,calls:db.callLogs.filter(x=>x.assignmentId===a.id)});
  if(method==='PUT'){if(r&&r.status==='completed')return error(res,409,'Bu sorğu artıq yekunlaşdırılıb.');const d=await readBody(req),answers=answerSanitize(d.answers,s),submitted=d.status==='completed';for(const q of s.questions)if(!visible(q,answers))delete answers[q.id];if(submitted){const err=validateAnswers(s,answers);if(err)return error(res,400,err);}const now=iso();if(!r){r={id:uid(),surveyId:s.id,assignmentId:a.id,contactId:a.contactId,agentId:user.id,answers:{},status:'draft',durationSec:0,startedAt:now,updatedAt:now,submittedAt:null};db.responses.unshift(r);}r.answers=answers;r.status=submitted?'completed':'draft';r.durationSec=Math.max(0,Math.min(86400,Number(d.durationSec)||0));r.updatedAt=now;if(submitted){r.submittedAt=now;a.status='completed';a.updatedAt=now;db.callLogs.unshift({id:uid(),assignmentId:a.id,agentId:user.id,outcome:'completed',notes:'Sorğu tamamlandı',durationSec:r.durationSec,createdAt:now});a.attempts++;a.lastCallAt=now;log(req,user,'Müsahibəni tamamladı',s.title,'Respondent: '+(db.contacts.find(c=>c.id===a.contactId)?.fullName||''));}else if(a.status==='pending'){a.status='in_progress';log(req,user,'Müsahibə qaralamasını saxladı',s.title);}save();return respond(res,200,{response:r,assignment:a});}}
@@ -509,18 +540,55 @@ if(p==='/api/login'&&method==='POST'){
     const rs=rep.responses;
     const format = url.searchParams.get('format') || 'excel';
 
-    const head=['№','Tarix və Saat','Növ','Respondent','Telefon','Operator / Əməkdaş','Sərf olunan vaxt','Müddət (saniyə)',...s.questions.map((q,idx)=>'Sual '+(idx+1)+': '+q.title)];
-    const rows=rs.map((r,idx)=>[
-      r.seqNumber || (idx+1),
-      r.submittedAt ? r.submittedAt.replace('T', ' ').slice(0, 19) : '—',
-      r.isPublic ? 'İctimai link' : 'Daxili sorğu',
-      r.contact,
-      r.phone,
-      r.agent + (r.agentUsername ? ' (@' + r.agentUsername + ')' : ''),
-      formatDuration(r.durationSec),
-      r.durationSec,
-      ...s.questions.map(q => cleanAnswerForExport(r.answers[q.id], q))
-    ]);
+    const head=['№','Tarix və Saat','Növ','Respondent','Telefon','Operator / Əməkdaş','Sərf olunan vaxt','Sual №','Sualın Mətni','Meyar / Alt-sual','Cavab'];
+    const rows=[];
+    rs.forEach((r, idx) => {
+      const seq = r.seqNumber || (idx + 1);
+      const dateStr = r.submittedAt ? r.submittedAt.replace('T', ' ').slice(0, 19) : '—';
+      const typeStr = r.isPublic ? 'İctimai link' : 'Daxili sorğu';
+      const contactStr = r.contact;
+      const phoneStr = r.phone;
+      const agentStr = r.agent + (r.agentUsername ? ' (@' + r.agentUsername + ')' : '');
+      const durFormatted = formatDuration(r.durationSec);
+
+      s.questions.forEach((q, qIdx) => {
+        const qNum = 'Sual ' + (qIdx + 1) + ':';
+        const qTitle = q.title;
+        const val = r.answers ? r.answers[q.id] : undefined;
+
+        if (q.type && q.type.startsWith('matrix') && typeof val === 'object' && val && !Array.isArray(val)) {
+          const rowKeys = (q.rows && q.rows.length) ? q.rows : Object.keys(val);
+          rowKeys.forEach(rowKey => {
+            const rowAns = val[rowKey];
+            const ansStr = (rowAns === undefined || rowAns === null || rowAns === '') 
+              ? '—' 
+              : (Array.isArray(rowAns) ? rowAns.join(', ') : String(rowAns));
+            rows.push([seq, dateStr, typeStr, contactStr, phoneStr, agentStr, durFormatted, qNum, qTitle, rowKey, ansStr]);
+          });
+        } else if (typeof val === 'object' && val && !Array.isArray(val) && !['text_ab', 'image_ab'].includes(q.type)) {
+          const entries = Object.entries(val);
+          if (entries.length) {
+            entries.forEach(([subKey, subVal]) => {
+              rows.push([seq, dateStr, typeStr, contactStr, phoneStr, agentStr, durFormatted, qNum, qTitle, subKey, Array.isArray(subVal) ? subVal.join(', ') : String(subVal ?? '—')]);
+            });
+          } else {
+            rows.push([seq, dateStr, typeStr, contactStr, phoneStr, agentStr, durFormatted, qNum, qTitle, '—', '—']);
+          }
+        } else if (Array.isArray(val) && q.type === 'multiple') {
+          if (val.length) {
+            val.forEach((item, itemIdx) => {
+              rows.push([seq, dateStr, typeStr, contactStr, phoneStr, agentStr, durFormatted, qNum, qTitle, 'Seçim ' + (itemIdx + 1), String(item)]);
+            });
+          } else {
+            rows.push([seq, dateStr, typeStr, contactStr, phoneStr, agentStr, durFormatted, qNum, qTitle, '—', '—']);
+          }
+        } else if (['text_ab', 'image_ab'].includes(q.type) && typeof val === 'object' && val) {
+          rows.push([seq, dateStr, typeStr, contactStr, phoneStr, agentStr, durFormatted, qNum, qTitle, val.variant ? ('Variant: ' + val.variant) : '—', String(val.answer ?? '—')]);
+        } else {
+          rows.push([seq, dateStr, typeStr, contactStr, phoneStr, agentStr, durFormatted, qNum, qTitle, '—', cleanAnswerForExport(val, q)]);
+        }
+      });
+    });
 
     const sumTitle = '--- ƏMƏKDAŞLARIN ÜMUMİ VAXT VƏ İCRA İCMALI ---';
     const sumHead = ['Əməkdaş','İstifadəçi adı','Rol','Tamamlanan sorğu sayı','Bir sorğuya orta vaxt','Ən qısa müsahibə','Ən uzun müsahibə','ÜMUMİ SƏRF OLUNAN VAXT','Cəmi saniyə','Vaxt payı (%)'];
