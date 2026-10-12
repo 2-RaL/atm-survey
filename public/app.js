@@ -213,6 +213,13 @@ function route(){
       if(location.hash!=='#/'+target)location.hash='#/'+target;
     }
     if(target==='interview'&&!state.interview){
+      const restored=restoreInterviewDraft();
+      if(restored){
+        state.page='interview';
+        render();
+        notify('Qaralama müsahibə bərpa edildi. Ən son qaldığınız yerdən davam edirsiniz.');
+        return;
+      }
       target=isLeader()?'dashboard':'surveys';
       if(location.hash!=='#/'+target)location.hash='#/'+target;
     }
@@ -301,7 +308,44 @@ function page(){
 function render(){
   if(state.page==='public_survey')return renderPublicSurvey();
   if(!state.user)return renderLogin();
+
+  const prevStageScroll=$('.builder-stage')?.scrollTop;
+  const prevLibScroll=$('.builder-panel:not(.right)')?.scrollTop;
+  const prevPropScroll=$('.builder-panel.right')?.scrollTop;
+  const prevWinY=window.scrollY;
+  const prevWinX=window.scrollX;
+
   $('#app').innerHTML=shell();
+
+  if(prevStageScroll!==undefined){
+    const st=$('.builder-stage');
+    if(st)st.scrollTop=prevStageScroll;
+  }
+  if(prevLibScroll!==undefined){
+    const lb=$('.builder-panel:not(.right)');
+    if(lb)lb.scrollTop=prevLibScroll;
+  }
+  if(prevPropScroll!==undefined){
+    const pr=$('.builder-panel.right');
+    if(pr)pr.scrollTop=prevPropScroll;
+  }
+  window.scrollTo(prevWinX,prevWinY);
+
+  requestAnimationFrame(()=>{
+    if(prevStageScroll!==undefined){
+      const st=$('.builder-stage');
+      if(st&&Math.abs(st.scrollTop-prevStageScroll)>2)st.scrollTop=prevStageScroll;
+    }
+    if(prevLibScroll!==undefined){
+      const lb=$('.builder-panel:not(.right)');
+      if(lb)lb.scrollTop=prevLibScroll;
+    }
+    if(prevPropScroll!==undefined){
+      const pr=$('.builder-panel.right');
+      if(pr)pr.scrollTop=prevPropScroll;
+    }
+    window.scrollTo(prevWinX,prevWinY);
+  });
 }
 
 const heading=(k,title,sub,buttons='')=>`<div class="page-heading"><div><div class="eyebrow">${k}</div><h1>${title}</h1><p>${sub}</p></div><div class="heading-actions">${buttons}</div></div>`;
@@ -1119,7 +1163,7 @@ function renderAnswer(q,answers={},preview=false){
   else if(type==='consent')html=`<label class="choice-card" style="max-width:470px"><input type="checkbox" data-answer="${questionId}" value="Bəli" ${checked('Bəli')?'checked':''} ${disabled}> Razılıq verirəm</label>`;
   else if(type.startsWith('matrix')){
     const rows=q.rows||[],cols=q.columns||[],multi=type==='matrix_multi',drop=type==='matrix_dropdown';
-    html=`<div class="matrix-wrap"><table class="matrix"><thead><tr><th></th>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr><td>${esc(row)}</td>${drop?`<td colspan="${cols.length}"><select class="answer-input" style="height:34px" data-answer="${questionId}" data-row="${esc(row)}" ${disabled}><option value="">Seçin...</option>${cols.map(col=>`<option value="${esc(col)}" ${(val||{})[row]===col?'selected':''}>${esc(col)}</option>`).join('')}</select></td>`:cols.map(col=>`<td><input type="${multi?'checkbox':'radio'}" name="mx_${questionId}_${esc(row)}" data-answer="${questionId}" data-row="${esc(row)}" value="${esc(col)}" ${multi?(Array.isArray((val||{})[row])&&(val||{})[row].includes(col)?'checked':''):((val||{})[row]===col?'checked':'')} ${disabled}></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    html=`<div class="matrix-wrap"><table class="matrix"><thead><tr><th></th>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr><td class="matrix-row-title">${esc(row)}</td>${drop?`<td colspan="${cols.length}" style="padding:8px 12px"><select class="answer-input" style="height:36px" data-answer="${questionId}" data-row="${esc(row)}" ${disabled}><option value="">Seçin...</option>${cols.map(col=>`<option value="${esc(col)}" ${(val||{})[row]===col?'selected':''}>${esc(col)}</option>`).join('')}</select></td>`:cols.map(col=>`<td class="matrix-choice-td"><label class="matrix-choice-label"><input type="${multi?'checkbox':'radio'}" class="matrix-round-input" name="mx_${questionId}_${esc(row)}" data-answer="${questionId}" data-row="${esc(row)}" value="${esc(col)}" ${multi?(Array.isArray((val||{})[row])&&(val||{})[row].includes(col)?'checked':''):((val||{})[row]===col?'checked':'')} ${disabled}></label></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   else if(type==='multitext')html=(q.rows||[]).map(row=>`<div class="multitext-row"><label>${esc(row)}</label><input class="answer-input" data-answer="${questionId}" data-row="${esc(row)}" value="${esc((val||{})[row]||'')}" placeholder="Cavabı daxil edin" ${disabled}></div>`).join('');
   else if(type==='ranking')html=`<p class="note">Hər variant üçün sıralama nömrəsi seçin (1 ən yüksəkdir).</p>${opts.map((o,i)=>`<div class="multitext-row"><label style="flex:1">${esc(o.label)}</label><select class="answer-input" style="max-width:110px" data-answer="${questionId}" data-row="${esc(o.label)}" ${disabled}><option value="">Sıra</option>${opts.map((_,j)=>`<option value="${j+1}" ${String((val||{})[o.label]||'')===String(j+1)?'selected':''}>${j+1}</option>`).join('')}</select></div>`).join('')}`;
@@ -1152,6 +1196,87 @@ function activeQuestions(){
   return s.questions.filter(q=>q.sectionId===s.sections[state.interviewIndex].id&&conditionMatch(q,state.interview.answers));
 }
 
+// ——— LOCAL STORAGE DRAFT & RECOVERY HELPERS ———
+function saveInterviewDraft(){
+  if(!state.interview||!state.interview.survey)return;
+  try{
+    const sId=state.interview.survey.id;
+    const data={
+      surveyId:sId,
+      respondentName:state.interview.respondentName||'',
+      respondentPhone:state.interview.respondentPhone||'',
+      answers:state.interview.answers||{},
+      interviewIndex:state.interviewIndex||0,
+      startTime:state.interview.startTime||Date.now()
+    };
+    localStorage.setItem('sp_draft_interview_'+sId,JSON.stringify(data));
+    localStorage.setItem('sp_active_interview_id',sId);
+  }catch{}
+}
+
+function restoreInterviewDraft(targetSurveyId){
+  try{
+    const sId=targetSurveyId||localStorage.getItem('sp_active_interview_id');
+    if(!sId)return false;
+    const raw=localStorage.getItem('sp_draft_interview_'+sId);
+    if(!raw)return false;
+    const data=JSON.parse(raw);
+    const survey=state.surveys.find(s=>s.id===sId);
+    if(!survey||survey.status!=='active')return false;
+    state.interview={
+      survey,
+      respondentName:data.respondentName||'',
+      respondentPhone:data.respondentPhone||'',
+      answers:data.answers||{},
+      startTime:Number(data.startTime)||Date.now()
+    };
+    state.interviewIndex=Math.max(0,Math.min(survey.sections.length-1,Number(data.interviewIndex)||0));
+    state.interviewDone=false;
+    state.dirty=true;
+    return true;
+  }catch{return false;}
+}
+
+function clearInterviewDraft(surveyId){
+  try{
+    if(surveyId)localStorage.removeItem('sp_draft_interview_'+surveyId);
+    const active=localStorage.getItem('sp_active_interview_id');
+    if(!surveyId||active===surveyId)localStorage.removeItem('sp_active_interview_id');
+  }catch{}
+}
+
+function savePublicSurveyDraft(surveyId){
+  if(!surveyId)return;
+  try{
+    const data={
+      answers:state.publicSurveyAnswers||{},
+      index:state.publicSurveyIndex||0,
+      startTime:state.publicSurveyStartTime||Date.now()
+    };
+    localStorage.setItem('sp_pub_draft_'+surveyId,JSON.stringify(data));
+  }catch{}
+}
+
+function restorePublicSurveyDraft(surveyId){
+  try{
+    const raw=localStorage.getItem('sp_pub_draft_'+surveyId);
+    if(!raw)return false;
+    const data=JSON.parse(raw);
+    if(data&&typeof data==='object'&&data.answers){
+      state.publicSurveyAnswers=data.answers||{};
+      state.publicSurveyIndex=Math.max(0,Number(data.index)||0);
+      state.publicSurveyStartTime=Number(data.startTime)||Date.now();
+      return true;
+    }
+  }catch{return false;}
+}
+
+function clearPublicSurveyDraft(surveyId){
+  try{
+    if(surveyId)localStorage.removeItem('sp_pub_draft_'+surveyId);
+  }catch{}
+}
+
 // ——— DIRECT SURVEY INTERVIEW FLOW ———
 function startDirectInterview(surveyId){
   if(!surveyId){
@@ -1160,16 +1285,22 @@ function startDirectInterview(surveyId){
   }
   const survey=state.surveys.find(s=>s.id===surveyId);
   if(!survey)return notify('Aktiv sorğu tapılmadı.',true);
-  state.interview={
-    survey,
-    respondentName:'',
-    respondentPhone:'',
-    answers:{},
-    startTime: Date.now()
-  };
-  state.interviewIndex=0;
-  state.interviewDone=false;
-  state.dirty=false;
+  const restored=restoreInterviewDraft(surveyId);
+  if(!restored){
+    state.interview={
+      survey,
+      respondentName:'',
+      respondentPhone:'',
+      answers:{},
+      startTime: Date.now()
+    };
+    state.interviewIndex=0;
+    state.interviewDone=false;
+    state.dirty=false;
+    saveInterviewDraft();
+  } else {
+    notify('Davam edən müsahibə bərpa edildi. Qaldığınız yerdən davam edirsiniz.');
+  }
   state.page='interview';
   if(location.hash!=='#/interview'){
     location.hash='#/interview';
@@ -1307,6 +1438,7 @@ function updateAnswer(node){
       v=node.value;
     }
     state.publicSurveyAnswers[id]=v;
+    savePublicSurveyDraft(state.publicSurvey.id);
     if(node.type==='range'){$(`.slider-value[data-for="${id}"]`)?.replaceChildren(document.createTextNode(v));}
     if(['radio','checkbox','select-one'].includes(node.type)&&!node.dataset.row)renderPublicSurvey();
     return;
@@ -1330,6 +1462,7 @@ function updateAnswer(node){
   else v=node.value;
   state.interview.answers[id]=v;
   state.dirty=true;
+  saveInterviewDraft();
   if(node.type==='range'){$(`.slider-value[data-for="${id}"]`)?.replaceChildren(document.createTextNode(v));}
   if(['radio','checkbox','select-one'].includes(node.type)&&!node.dataset.row)render();
 }
@@ -1362,13 +1495,21 @@ async function finishInterview(){
       respondentPhone,
       status: 'completed'
     });
+    clearInterviewDraft(x.survey.id);
     state.dirty=false;
     await refresh();
     state.interviewDone=true;
     render();
     notify(`Sorğu tamamlandı! Sərf olunan vaxt: ${formatTimeSpent(durationSec)}.`);
   }catch(err){
-    notify(err.message||'Müsahibə saxlanılarkən xəta baş verdi.',true);
+    const isOffline = !navigator.onLine || /network|failed to fetch/i.test(err.message||'');
+    if (isOffline) {
+      notify('İnternet bağlantısı kəsildi! Seçimləriniz cihazınızda təhlükəsiz saxlanıldı. Bağlantı bərpa olunduqda yenidən "Sorğunu yekunlaşdır" düyməsinə klikləyin.', true);
+      const warn=$('#interview-warning');
+      if(warn)warn.innerHTML=`<div class="page-error" style="background:#fee2e2;color:#991b1b;border:1px solid #f87171">${ico('info',16)} İnternet bağlantısı kəsilib. Qeyd etdiyiniz bütün cavablar cihazda saxlanıldı. Bağlantı bərpa olunduqda yenidən təsdiq edin.</div>`;
+    } else {
+      notify(err.message||'Müsahibə saxlanılarkən xəta baş verdi.',true);
+    }
   }
 }
 
@@ -1387,6 +1528,10 @@ async function loadPublicSurvey(id){
     const res=await request('/api/public/surveys/'+id);
     state.publicSurvey=res.survey;
     state.publicSurveyLoading=false;
+    const restored=restorePublicSurveyDraft(id);
+    if(restored){
+      notify('Əvvəlki seçimləriniz bərpa edildi. Qaldığınız yerdən davam edirsiniz.');
+    }
     renderPublicSurvey();
   }catch(err){
     state.publicSurveyLoading=false;
@@ -1501,11 +1646,19 @@ async function submitPublicSurvey(){
   const durationSec=Math.round((Date.now()-state.publicSurveyStartTime)/1000);
   try{
     await api('/api/public/surveys/'+s.id,{answers:state.publicSurveyAnswers,durationSec});
+    clearPublicSurveyDraft(s.id);
     state.publicSurveyDone=true;
     renderPublicSurvey();
     notify('Sorğu uğurla tamamlandı. Təşəkkür edirik!');
   }catch(err){
-    notify(err.message||'Xəta baş verdi',true);
+    const isOffline = !navigator.onLine || /network|failed to fetch/i.test(err.message||'');
+    if (isOffline) {
+      notify('İnternet bağlantısı kəsildi! Cavablarınız cihazınızda qorunub saxlanıldı. Bağlantı bərpa edildikdən sonra yenidən göndərin.', true);
+      const warn=$('#public-survey-error');
+      if(warn)warn.innerHTML=`<div class="page-error" style="background:#fee2e2;color:#991b1b;border:1px solid #f87171">${ico('info',16)} İnternet bağlantısı kəsilib. Seçimləriniz cihazınızda təhlükəsiz saxlanıldı. Bağlantı bərpa edildikdən sonra sorğunu yenidən göndərə bilərsiniz.</div>`;
+    } else {
+      notify(err.message||'Xəta baş verdi',true);
+    }
   }
 }
 
@@ -1879,8 +2032,39 @@ async function dispatchAction(el){
       case'export-audit-excel':window.location.href='/api/export-audit?format=excel';notify('Fəaliyyət tarixçəsinin Excel ixracı başlanıldı.');break;
       case'close-modal':closeModal();break;
       case'save-builder':{const r=await api('/api/surveys/'+state.builder.id,state.builder,'PUT');state.builder=r.survey;state.dirty=false;await refresh();render();notify('Sorğu yadda saxlanıldı.');break;}
-      case'add-question':{const s=state.builder;const q=newQuestion(el.dataset.type,el.dataset.section||state.builderSection||s.sections[0].id);s.questions.push(q);state.builderQ=q.id;state.builderSection=q.sectionId;state.preview=false;state.propOpen=true;state.dirty=true;render();break;}
-      case'select-question':state.builderQ=id;state.builderSection=findBuilderQ(id)?.sectionId;state.preview=false;state.propOpen=true;render();break;
+      case'add-question':{
+        const s=state.builder;
+        const q=newQuestion(el.dataset.type,el.dataset.section||state.builderSection||s.sections[0]?.id);
+        s.questions.push(q);
+        state.builderQ=q.id;
+        state.builderSection=q.sectionId;
+        state.preview=false;
+        state.propOpen=true;
+        state.dirty=true;
+        render();
+        requestAnimationFrame(()=>{
+          const newCard=$(`.q-card[data-id="${q.id}"]`);
+          if(newCard)newCard.scrollIntoView({behavior:'smooth',block:'nearest'});
+        });
+        break;
+      }
+      case'select-question':{
+        state.builderQ=id;
+        state.builderSection=findBuilderQ(id)?.sectionId;
+        state.preview=false;
+        state.propOpen=true;
+        const stage=$('.builder-stage');
+        const propPanel=$('#property-panel');
+        if(stage&&propPanel){
+          $$('.q-card').forEach(card=>card.classList.toggle('selected',card.dataset.id===id));
+          propPanel.classList.add('show');
+          const q=findBuilderQ(id);
+          propPanel.innerHTML=q?properties(q):`<div class="builder-panel-title">SUAL PARAMETRLƏRİ</div>${empty('edit','Sual seçin','Soldakı kitabxanadan sual əlavə edin və ya ortadakı sualı seçin.')}`;
+          break;
+        }
+        render();
+        break;
+      }
       case'clone-question':{const i=state.builder.questions.findIndex(q=>q.id===id);const clone=structuredClone(state.builder.questions[i]);clone.id=mkId();clone.title+=' (surət)';state.builder.questions.splice(i+1,0,clone);state.builderQ=clone.id;state.propOpen=true;state.dirty=true;render();break;}
       case'delete-question':if(confirm('Bu sualı silmək istəyirsiniz?')){state.builder.questions=state.builder.questions.filter(q=>q.id!==id);state.builderQ=state.builder.questions[0]?.id||null;state.dirty=true;render();}break;
       case'move-question':{const s=state.builder,idx=s.questions.findIndex(q=>q.id===id),section=s.questions[idx].sectionId,matching=s.questions.map((q,i)=>q.sectionId===section?i:-1).filter(i=>i>=0),pos=matching.indexOf(idx),target=matching[pos+Number(el.dataset.direction)];if(target!==undefined){[s.questions[idx],s.questions[target]]=[s.questions[target],s.questions[idx]];state.dirty=true;render();}break;}
@@ -1894,31 +2078,33 @@ async function dispatchAction(el){
       case'numeric-answer':{
         if(state.page==='public_survey'&&state.publicSurvey){
           state.publicSurveyAnswers[el.dataset.qid]=Number(el.dataset.value);
+          savePublicSurveyDraft(state.publicSurvey.id);
           renderPublicSurvey();
         } else if(state.interview&&state.page==='interview'){
           state.interview.answers[el.dataset.qid]=Number(el.dataset.value);
+          saveInterviewDraft();
           state.dirty=true;render();
         }
         break;
       }
-      case'interview-prev':if(state.interviewIndex>0){state.interviewIndex--;render();}break;
-      case'interview-step':state.interviewIndex=Number(el.dataset.index);render();break;
+      case'interview-prev':if(state.interviewIndex>0){state.interviewIndex--;saveInterviewDraft();render();}break;
+      case'interview-step':state.interviewIndex=Number(el.dataset.index);saveInterviewDraft();render();break;
       case'interview-next':{
         const err=checkSection();
         if(err){notify(err,true);const warning=$('#interview-warning');if(warning)warning.innerHTML=`<div class="page-error">${ico('info',14)} ${esc(err)}</div>`;break;}
         if(state.interviewIndex===state.interview.survey.sections.length-1){
           if(confirm('Sorğunu yekunlaşdırmaq istəyirsiniz? Sərf olunan vaxt hesabatda qeydə alınacaq.'))await finishInterview();
-        }else {state.interviewIndex++;render();window.scrollTo(0,0);}
+        }else {state.interviewIndex++;saveInterviewDraft();render();window.scrollTo(0,0);}
         break;
       }
-      case'public-survey-prev':if(state.publicSurveyIndex>0){state.publicSurveyIndex--;renderPublicSurvey();window.scrollTo(0,0);}break;
+      case'public-survey-prev':if(state.publicSurveyIndex>0){state.publicSurveyIndex--;savePublicSurveyDraft(state.publicSurvey.id);renderPublicSurvey();window.scrollTo(0,0);}break;
       case'public-survey-next':{
         const err=checkPublicSection();
         if(err){notify(err,true);const warn=$('#public-survey-error');if(warn)warn.innerHTML=`<div class="page-error">${ico('info',14)} ${esc(err)}</div>`;break;}
         if(state.publicSurveyIndex===state.publicSurvey.sections.length-1){
           await submitPublicSurvey();
         }else{
-          state.publicSurveyIndex++;renderPublicSurvey();window.scrollTo(0,0);
+          state.publicSurveyIndex++;savePublicSurveyDraft(state.publicSurvey.id);renderPublicSurvey();window.scrollTo(0,0);
         }
         break;
       }
@@ -2069,6 +2255,8 @@ document.addEventListener('input',e=>{
     },220);
     return;
   }
+  if(el.id==='interview-name-input'){if(state.interview){state.interview.respondentName=el.value;saveInterviewDraft();}return;}
+  if(el.id==='interview-phone-input'){if(state.interview){state.interview.respondentPhone=el.value;saveInterviewDraft();}return;}
   if(el.dataset.answer!==undefined){updateAnswer(el);return;}
 });
 
@@ -2150,7 +2338,12 @@ window.addEventListener('hashchange',()=>{
   else{renderLogin();}
 });
 
+window.addEventListener('online',()=>{notify('İnternet bağlantısı bərpa olundu.');});
+window.addEventListener('offline',()=>{notify('İnternet bağlantısı kəsildi. Sorğu məlumatları cihazınızda təhlükəsiz saxlanılır.',true);});
+
 window.addEventListener('beforeunload',e=>{
+  if(state.interview&&state.page==='interview')saveInterviewDraft();
+  if(state.publicSurvey&&state.page==='public_survey')savePublicSurveyDraft(state.publicSurvey.id);
   if(state.dirty&&['builder','interview'].includes(state.page)){e.preventDefault();e.returnValue='';}
 });
 

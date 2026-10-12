@@ -489,3 +489,29 @@ test('Survey deletion (DELETE /api/surveys/:id): admin/editor can delete survey,
   assert.equal(delAudit.userName, 'Samir Babayev (Redaktor)');
 });
 
+test('Matrix question large round inputs, builder scroll freeze, and draft recovery resilience', async () => {
+  const appJs = fs.readFileSync(path.join(project, 'public/app.js'), 'utf8');
+  const styleCss = fs.readFileSync(path.join(project, 'public/style.css'), 'utf8');
+
+  // 1. Matrix choice label and round inputs exist in template & styling
+  assert.ok(appJs.includes('matrix-choice-label'), 'Matrix cells wrapped in clickable label');
+  assert.ok(appJs.includes('matrix-round-input'), 'Matrix inputs have matrix-round-input class');
+  assert.ok(styleCss.includes('.matrix-choice-label'), 'Matrix choice label has CSS');
+  assert.ok(styleCss.includes('.matrix-round-input'), 'Matrix round input has CSS');
+  assert.ok(styleCss.includes('transform: scale('), 'Matrix round inputs are scaled larger');
+
+  // 2. Builder scroll retention exists in render & select-question
+  assert.ok(appJs.includes('prevStageScroll'), 'render() preserves builder stage scroll');
+  assert.ok(appJs.includes('prevLibScroll'), 'render() preserves question library scroll');
+  assert.ok(appJs.includes('requestAnimationFrame'), 'Scroll positions restored via rAF');
+
+  // 3. Draft persistence and recovery helpers exist
+  assert.ok(appJs.includes('saveInterviewDraft'), 'Interview auto-save draft function exists');
+  assert.ok(appJs.includes('restoreInterviewDraft'), 'Interview auto-recovery draft function exists');
+  assert.ok(appJs.includes('savePublicSurveyDraft'), 'Public survey auto-save draft function exists');
+  assert.ok(appJs.includes('restorePublicSurveyDraft'), 'Public survey auto-recovery draft function exists');
+  assert.ok(appJs.includes("window.addEventListener('online'"), 'Online network listener registered');
+  assert.ok(appJs.includes("window.addEventListener('offline'"), 'Offline network listener registered');
+});
+
+

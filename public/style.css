@@ -441,3 +441,105 @@
 .side-user-text small {
   color: #94a3b8 !important;
 }
+
+/* MATRIX / CƏDVƏL SUALLARINDA BÖYÜK ROUND SEÇİMLƏR VƏ ASAN CLİCK */
+.matrix-wrap {
+  overflow-x: auto !important;
+  border-radius: 12px !important;
+  border: 1px solid #e2e8f0 !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04) !important;
+  margin: 14px 0 !important;
+}
+.matrix {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  width: 100% !important;
+  min-width: 520px !important;
+}
+.matrix th {
+  padding: 14px 12px !important;
+  background: #f8fafc !important;
+  color: #1e293b !important;
+  font-weight: 800 !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+  text-align: center !important;
+}
+.matrix th:first-child {
+  text-align: left !important;
+  padding-left: 18px !important;
+}
+.matrix td {
+  padding: 0 !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+.matrix tr:last-child td {
+  border-bottom: none !important;
+}
+.matrix td.matrix-row-title {
+  text-align: left !important;
+  font-weight: 700 !important;
+  font-size: 13px !important;
+  color: #1e293b !important;
+  padding: 14px 18px !important;
+  min-width: 170px !important;
+  background: #ffffff !important;
+}
+.matrix tbody tr:hover td.matrix-row-title {
+  background: #f8faff !important;
+}
+.matrix-choice-td {
+  padding: 0 !important;
+}
+.matrix-choice-label {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  min-height: 52px !important;
+  padding: 10px 14px !important;
+  cursor: pointer !important;
+  margin: 0 !important;
+  transition: background 0.15s ease !important;
+  user-select: none !important;
+}
+.matrix-choice-label:hover {
+  background: #ede9fe !important;
+}
+.matrix-choice-label:has(input:checked) {
+  background: #f3f0ff !important;
+}
+.matrix-round-input,
+.matrix input[type="radio"],
+.matrix input[type="checkbox"] {
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 22px !important;
+  min-height: 22px !important;
+  cursor: pointer !important;
+  accent-color: #6366f1 !important;
+  margin: 0 !important;
+  transform: scale(1.3) !important;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+.matrix-choice-label:hover .matrix-round-input {
+  transform: scale(1.5) !important;
+}
+
+/* BUILDER SCROLL RETENTION */
+.builder-shell {
+  height: calc(100vh - 162px) !important;
+  min-height: 650px !important;
+  overflow: hidden !important;
+}
+.builder-panel {
+  overflow-y: auto !important;
+  scroll-behavior: smooth !important;
+}
+.builder-stage {
+  overflow-y: auto !important;
+  scroll-behavior: smooth !important;
+}
+
