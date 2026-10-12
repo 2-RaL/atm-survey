@@ -1,0 +1,172 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
+const net = require('node:net');
+
+const project = path.resolve(__dirname, '..');
+
+async function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, '127.0.0.1', () => {
+      const p = srv.address().port;
+      srv.close(() => resolve(p));
+    });
+    srv.on('error', reject);
+  });
+}
+
+async function startServer(dataDir) {
+  const port = await freePort();
+  const child = spawn(process.execPath, [path.join(project, 'server/server.js')], {
+    cwd: project,
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOST: '127.0.0.1',
+      DATA_DIR: dataDir,
+      NODE_ENV: 'test',
+      SEED_DEMO: 'true',
+      ADMIN_PASSWORD: 'UnitTest@2026!',
+    },
+    stdio: 'ignore',
+  });
+  const base = `http://127.0.0.1:${port}`;
+  let ready = false;
+  for (let i = 0; i < 65; i++) {
+    await new Promise(r => setTimeout(r, 80));
+    try {
+      const res = await fetch(base + '/api/health');
+      if (res.ok) { ready = true; break; }
+    } catch {}
+    if (child.exitCode !== null) throw new Error('Server died early');
+  }
+  if (!ready) throw new Error('Server failed to start');
+  return { child, base, stop: () => { child.kill(); } };
+}
+
+async function login(base, username, password) {
+  const res = await fetch(base + '/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  assert.equal(res.status, 200);
+  const cookie = res.headers.get('set-cookie').split(';')[0];
+  const body = await res.json();
+  return { cookie, user: body.user };
+}
+
+test('Direct survey interview flow, survey sectors for contacts, and operator time tracking', async t => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sorgu-direct-test-'));
+  t.after(() => {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  });
+
+  const { base, stop } = await startServer(tmpDir);
+  t.after(() => stop());
+
+  const adminAuth = await login(base, 'admin', 'UnitTest@2026!');
+  const opAuth = await login(base, 'operator1', 'Agent@2026!');
+
+  // 1. Get existing surveys
+  const surveysRes = await fetch(base + '/api/surveys', {
+    headers: { Cookie: adminAuth.cookie },
+  });
+  assert.equal(surveysRes.status, 200);
+  const surveysData = await surveysRes.json();
+  assert.ok(surveysData.surveys.length > 0);
+  const survey = surveysData.surveys[0];
+  const surveyId = survey.id;
+  const questionKey = survey.questions[0].id;
+
+  // 2. Add contacts to survey sector
+  const contactRes = await fetch(base + '/api/contacts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: adminAuth.cookie },
+    body: JSON.stringify({
+      fullName: 'Rəşad Əliyev',
+      phone: '+994501112233',
+      sector: 'Bakı Şəhəri',
+      surveyId: surveyId,
+      notes: 'Sektor testi',
+    }),
+  });
+  assert.equal(contactRes.status, 201);
+  const contactData = await contactRes.json();
+  const contact = contactData.contact;
+  assert.equal(contact.surveyId, surveyId);
+
+  // Filter contacts by surveyId
+  const sectorContactsRes = await fetch(`${base}/api/contacts?surveyId=${surveyId}`, {
+    headers: { Cookie: adminAuth.cookie },
+  });
+  assert.equal(sectorContactsRes.status, 200);
+  const sectorContactsData = await sectorContactsRes.json();
+  assert.ok(sectorContactsData.contacts.some(c => c.id === contact.id));
+
+  // 3. Operator starts direct interview without task assignment (2 responses with duration)
+  // Response 1: 145 seconds (2 dəq 25 san)
+  const resp1 = await fetch(`${base}/api/surveys/${surveyId}/responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: opAuth.cookie },
+    body: JSON.stringify({
+      contactId: contact.id,
+      respondentName: 'Rəşad Əliyev',
+      respondentPhone: '+994501112233',
+      durationSec: 145,
+      answers: { [questionKey]: 'Razıyam' },
+      notes: 'Müsahibə uğurla tamamlandı',
+    }),
+  });
+  assert.equal(resp1.status, 201);
+  const resp1Data = await resp1.json();
+  assert.equal(resp1Data.response.durationSec, 145);
+  assert.equal(resp1Data.response.durationFormatted, '2 dəq 25 san');
+  assert.equal(resp1Data.response.operatorName, 'operator1');
+
+  // Response 2: 75 seconds (1 dəq 15 san)
+  const resp2 = await fetch(`${base}/api/surveys/${surveyId}/responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: opAuth.cookie },
+    body: JSON.stringify({
+      respondentName: 'Leyla Məmmədova',
+      respondentPhone: '+994559998877',
+      durationSec: 75,
+      answers: { [questionKey]: 'Qismən razıyam' },
+    }),
+  });
+  assert.equal(resp2.status, 201);
+
+  // 4. Admin checks survey report and time analytics
+  const reportRes = await fetch(`${base}/api/reports/${surveyId}`, {
+    headers: { Cookie: adminAuth.cookie },
+  });
+  assert.equal(reportRes.status, 200);
+  const rep = await reportRes.json();
+  assert.ok(rep.userStats, 'report includes userStats');
+  const opStat = rep.userStats.find(u => u.username === 'operator1');
+  assert.ok(opStat, 'operator1 stat exists');
+  assert.ok(opStat.count >= 2, 'at least 2 responses recorded for operator1');
+  assert.ok(opStat.totalDurationSec >= 220, 'total duration matches');
+  assert.ok(opStat.totalDurationFormatted.includes('dəq'), 'formatted total duration includes minutes');
+  assert.ok(opStat.avgDurationFormatted, 'has average duration formatted');
+
+  // Check individual responses in report
+  assert.ok(rep.responses.some(r => r.durationSec === 145 && r.durationFormatted === '2 dəq 25 san'));
+
+  // 5. Check CSV export includes duration and summary table
+  const exportRes = await fetch(`${base}/api/export/${surveyId}?format=csv`, {
+    headers: { Cookie: adminAuth.cookie },
+  });
+  assert.equal(exportRes.status, 200);
+  const csv = await exportRes.text();
+  assert.ok(csv.includes('Sərf olunan vaxt'), 'CSV header has duration column');
+  assert.ok(csv.includes('2 dəq 25 san'), 'CSV row contains respondent duration');
+  assert.ok(csv.includes('ƏMƏKDAŞLARIN ÜMUMİ VAXT'), 'CSV includes final summary table');
+  assert.ok(csv.includes('operator1'), 'CSV summary includes operator');
+});

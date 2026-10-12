@@ -7,11 +7,31 @@ const datetimeLocal=value=>{if(!value)return '';const d=new Date(value);return n
 const pl=n=>new Intl.NumberFormat('az-AZ').format(Number(n)||0);
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 
+function formatTimeSpent(totalSeconds){
+  const s=Math.max(0,Math.round(Number(totalSeconds)||0));
+  const hours=Math.floor(s/3600);
+  const minutes=Math.floor((s%3600)/60);
+  const seconds=s%60;
+  const parts=[];
+  if(hours>0)parts.push(`${hours} saat`);
+  if(minutes>0)parts.push(`${minutes} dəq`);
+  if(seconds>0||!parts.length)parts.push(`${seconds} san`);
+  return parts.join(' ');
+}
+
+function formatDurationClock(sec){
+  const s=Math.max(0,Math.round(Number(sec)||0));
+  const h=Math.floor(s/3600);
+  const m=Math.floor((s%3600)/60);
+  const rem=s%60;
+  if(h>0)return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(rem).padStart(2,'0');
+  return String(m).padStart(2,'0')+':'+String(rem).padStart(2,'0');
+}
+
 const icons={
   dashboard:'<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
   surveys:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/>',
   contacts:'<rect x="3" y="5" width="18" height="15" rx="2"/><circle cx="9" cy="11" r="2"/><path d="M6 16c0-2 6-2 6 0M15 10h3M15 14h3"/>',
-  tasks:'<path d="M8 3h8l2 3h3v15H3V6h3zM8 3v4h8V3"/><path d="m8 14 3 3 5-6"/>',
   reports:'<path d="M4 20V10M10 20V4M16 20v-8M22 20V7"/>',
   team:'<circle cx="9" cy="8" r="3"/><path d="M3 20v-2c0-5 12-5 12 0v2M16 7a3 3 0 0 1 0 6M17 16c3 0 5 1 5 4"/>',
   settings:'<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1M18.4 5.6l-2.1 2.1m-8.6 8.6-2.1 2.1"/><circle cx="12" cy="12" r="4"/>',
@@ -45,7 +65,7 @@ const TYPES=[
 ];
 const typeLabel=t=>TYPES.find(x=>x[1]===t)?.[2]||t;
 const groups=[...new Set(TYPES.map(x=>x[0]))];
-const OUTCOME={pending:'Gözləyir',in_progress:'Davam edir',callback:'Təkrar zəng',no_answer:'Cavab vermədi',busy:'Məşğul',refused:'İmtina etdi',completed:'Tamamlandı',active:'Aktiv',draft:'Qaralama',paused:'Dayandırılıb',archived:'Arxiv'};
+const OUTCOME={completed:'Tamamlandı',active:'Aktiv',draft:'Qaralama',paused:'Dayandırılıb',archived:'Arxiv',pending:'Gözləyir'};
 const outcomeBadge=(v)=>`<span class="badge ${esc(v)}">${esc(OUTCOME[v]||v)}</span>`;
 const initials=n=>String(n||'S').trim().split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase();
 const mkId=()=>globalThis.crypto?.randomUUID?.()||'id'+Math.random().toString(36).slice(2);
@@ -56,10 +76,10 @@ const roleTitle=r=>r==='admin'?'Sistem administratoru':r==='editor'?'Redaktor':'
 const roleBadge=r=>`<span class="role-badge ${esc(r||'agent')}">${esc(r==='admin'?'Administrator':r==='editor'?'Redaktor':r==='agent'?'Operator':'Qonaq')}</span>`;
 
 let state={
-  user:null,page:'dashboard',surveys:[],contacts:[],assignments:[],users:[],audit:[],dashboard:null,
-  filter:'',statusFilter:'all',selectedContacts:new Set(),builder:null,builderQ:null,builderSection:null,
+  user:null,page:'dashboard',surveys:[],contacts:[],responses:[],users:[],audit:[],dashboard:null,
+  filter:'',statusFilter:'all',selectedSector:'all',selectedContacts:new Set(),builder:null,builderQ:null,builderSection:null,
   propOpen:false,preview:false,interview:null,interviewIndex:0,interviewDone:false,report:null,
-  reportSurveyId:null,reportTab:'summary',mobile:false,dirty:false,
+  reportSurveyId:null,reportTab:'responses',mobile:false,dirty:false,
   publicSurvey:null,publicSurveyAnswers:{},publicSurveyIndex:0,publicSurveyDone:false,
   publicSurveyLoading:false,publicSurveyError:'',publicSurveyStartTime:0
 };
@@ -101,7 +121,7 @@ async function init(){
 }
 
 async function refresh(){
-  const load=[request('/api/surveys'),request('/api/contacts'),request('/api/assignments'),request('/api/dashboard')];
+  const load=[request('/api/surveys'),request('/api/contacts'),request('/api/dashboard')];
   if(isLeader()){
     load.push(request('/api/users'));
     load.push(request('/api/audit'));
@@ -109,10 +129,9 @@ async function refresh(){
   const results=await Promise.all(load);
   state.surveys=results[0].surveys;
   state.contacts=results[1].contacts;
-  state.assignments=results[2].assignments;
-  state.dashboard=results[3];
-  state.users=results[4]?.users||[];
-  state.audit=results[5]?.audit||[];
+  state.dashboard=results[2];
+  state.users=results[3]?.users||[];
+  state.audit=results[4]?.audit||[];
 }
 
 function renderLogin(){
@@ -127,10 +146,10 @@ function renderLogin(){
         <div class="login-promo">
           <div class="login-kicker">Yeni nəsil sorğu idarəetməsi</div>
           <h1>Hər cavab<br><em>dəyərli məlumatdır.</em></h1>
-          <p>Telefon sorğuları, operator işi, ağıllı sual formaları və real vaxt analitikası — hamısı vahid platformada.</p>
+          <p>Telefon sorğuları, respondent sektorları, birbaşa müsahibə və hər əməkdaş üzrə dəqiq vaxt analitikası.</p>
           <div class="login-graphic">
             <div class="mini-bars">${[32,49,41,65,54,76,68,92].map(x=>`<i style="height:${x}%"></i>`).join('')}</div>
-            <div class="login-metric"><strong>360°</strong><small>Kompleks analiz<br>Bir platforma</small></div>
+            <div class="login-metric"><strong>360°</strong><small>Dəqiq Vaxt İcmalı<br>Sektorlaşdırılmış Baza</small></div>
           </div>
         </div>
         <div class="login-visual-foot">
@@ -168,8 +187,7 @@ function renderLogin(){
 const NAV=[
   ['dashboard','İdarə paneli','dashboard'],
   ['surveys','Sorğular','surveys'],
-  ['tasks','Zəng tapşırıqları','tasks'],
-  ['contacts','Respondentlər','contacts'],
+  ['contacts','Respondent bazası','contacts'],
   ['reports','Hesabatlar','reports'],
   ['team','Operatorlar','team'],
   ['audit','Fəaliyyət tarixçəsi','clock'],
@@ -188,7 +206,7 @@ function route(){
   if(pubMatch){loadPublicSurvey(pubMatch[1]);return;}
   const p=hash.match(/^#\/([\w-]+)/)?.[1]||'dashboard';
   if(state.user){
-    const allowed=['dashboard','surveys','tasks','contacts','reports','team','audit','settings','builder','interview'];
+    const allowed=['dashboard','surveys','contacts','reports','team','audit','settings','builder','interview'];
     state.page=allowed.includes(p)?p:'dashboard';
     if(state.page==='builder'||state.page==='interview')state.page='dashboard';
     render();
@@ -215,7 +233,6 @@ function shell(){
           ${nav.map(([id,text,icon])=>`
             <button class="nav-link ${p===id?'active':''}" data-action="nav" data-page="${id}" style="width:100%;border:0;text-align:left">
               ${ico(icon,18)}<span>${text}</span>
-              ${id==='tasks'&&state.dashboard?.stats?.pending?`<span class="nav-count">${state.dashboard.stats.pending}</span>`:''}
             </button>
           `).join('')}
           <div class="nav-label">SİSTEM</div>
@@ -226,7 +243,7 @@ function shell(){
         <div class="side-bottom">
           <div class="side-assist">
             <b>${ico('spark',14)} &nbsp; SorğuPro Studio</b>
-            <p>Kompleks sorğuları qurun, zəngləri idarə edin və nəticələri analiz edin.</p>
+            <p>Sorğuları qurun, sektorlar üzrə müsahibələri aparın və dəqiq vaxt hesabatlarını izləyin.</p>
           </div>
           <div class="side-user">
             <div class="avatar">${esc(initials(state.user.name))}</div>
@@ -263,7 +280,6 @@ function page(){
     case'dashboard':return dashboardPage();
     case'surveys':return surveysPage();
     case'contacts':return contactsPage();
-    case'tasks':return tasksPage();
     case'reports':return reportsPage();
     case'team':return teamPage();
     case'audit':return auditPage();
@@ -284,87 +300,83 @@ const heading=(k,title,sub,buttons='')=>`<div class="page-heading"><div><div cla
 function empty(icon,title,text,button=''){return `<div class="empty">${ico(icon,39)}<h3>${esc(title)}</h3><p>${esc(text)}</p>${button}</div>`;}
 
 function dashboardPage(){
-  const x=state.dashboard||{stats:{},days:[],recent:[],byStatus:{}};
+  const x=state.dashboard||{stats:{},days:[],recent:[]};
   const z=x.stats,leader=isLeader();
   const cards=[
     ['Aktiv sorğular',z.activeSurveys,'Hazırda yayımlanan sorğular','surveys',''],
-    ['Tapşırıqlar',z.totalAssignments,'Respondent zəng siyahısı','phone','mint'],
-    ['Tamamlanan',z.completed,'Yekunlaşdırılmış müsahibələr','check','blue'],
-    ['İcra göstəricisi',(z.completionRate||0)+'%','Bütün tapşırıqlar üzrə','chart','orange']
+    ['Tamamlanan sorğu',z.completed,'Uğurla başa çatan müsahibələr','check','mint'],
+    ['Cəmi sərf olunan vaxt',formatTimeSpent(z.totalDurationSec),'Bütün müsahibələr üzrə','clock','blue'],
+    ['Respondent bazası',pl(z.respondents),'Bazada mövcud əlaqələr','contacts','orange']
   ];
-  const max=Math.max(1,...x.days.map(d=>Math.max(d.calls,d.completed)));
+  const maxDay=Math.max(1,...(x.days||[]).map(d=>d.completed));
   return `
-    ${heading('İDARƏ PANELİ','Salam, '+esc(state.user.name.split(' ')[0])+'!','İş axınına nəzarət edin, zəngləri və sorğu göstəricilərini izləyin.',`
+    ${heading('İDARƏ PANELİ','Salam, '+esc(state.user.name.split(' ')[0])+'!','Sorğular üzrə birbaşa müsahibə aparın və əməkdaşların vaxt hesabatlarını izləyin.',`
       <button class="btn" data-action="refresh">${ico('refresh',16)} Yenilə</button>
       ${leader?`<button class="btn btn-primary" data-action="new-survey">${ico('plus',16)} Yeni sorğu</button>`:''}
     `)}
     <div class="welcome-banner">
       <div>
-        <h2>Məlumatı topla. Dəqiq qərar ver.</h2>
-        <p>${leader?'Sorğuların hazırlanması, operatorların idarə edilməsi və analitika bir mərkəzdə.':'Bu gün üçün tapşırıqlarınızı izləyin, respondentlərlə əlaqə saxlayın və cavabları sistemə daxil edin.'}</p>
+        <h2>Məlumatı topla. Dəqiq vaxt və nəticə ilə analiz et.</h2>
+        <p>${leader?'Sorğuları idarə edin, respondent bazasında sektorları tənzimləyin və əməkdaşların sərf etdiyi vaxtı izləyin.':'İstənilən aktiv sorğunu seçib dərhal müsahibəyə başlayın. Sorğu bitdikdə sərf olunan vaxt avtomatik qeydə alınır.'}</p>
       </div>
-      <button class="btn" data-action="nav" data-page="${leader?'surveys':'tasks'}">${leader?'Sorğuları idarə et':'Zənglərə başla'} ${ico('arrow',15)}</button>
+      <button class="btn" data-action="nav" data-page="surveys">Sorğulara bax ${ico('arrow',15)}</button>
     </div>
     <div class="grid cols-4">${cards.map(([title,val,desc,icon,color])=>`
       <div class="card stat-card">
         <div class="stat-head"><span class="stat-label">${title}</span><span class="stat-icon ${color}">${ico(icon,20)}</span></div>
-        <div class="stat-value">${pl(String(val).replace('%',''))}${String(val).endsWith('%')?'%':''}</div>
+        <div class="stat-value" style="font-size:25px">${val}</div>
         <div class="stat-foot">${desc}</div>
       </div>
     `).join('')}</div>
     <div class="grid cols-3 mt20">
       <div class="card span-2">
         <div class="card-head">
-          <div><h3>Fəaliyyət dinamikası</h3><p>Son 7 günün tamamlanan sorğuları və zəngləri</p></div>
-          <div class="legend"><span>Zənglər</span><span class="mint">Sorğular</span></div>
+          <div><h3>Müsahibə dinamikası</h3><p>Son 7 gündə tamamlanan sorğu sayı</p></div>
+          <div class="legend"><span class="mint">Tamamlanan müsahibələr</span></div>
         </div>
         <div class="dashboard-chart">
-          <div class="chart-area">${x.days.map(d=>`
+          <div class="chart-area">${(x.days||[]).map(d=>`
             <div class="chart-group">
-              <div class="bar" title="Zənglər: ${d.calls}" style="height:${Math.max(2,d.calls/max*92)}%"></div>
-              <div class="bar second" title="Tamamlanan: ${d.completed}" style="height:${Math.max(2,d.completed/max*92)}%"></div>
+              <div class="bar second" title="${d.completed} sorğu (${formatTimeSpent(d.durationSec)})" style="height:${Math.max(3,d.completed/maxDay*90)}%"></div>
             </div>
           `).join('')}</div>
-          <div class="chart-x">${x.days.map(d=>`<span>${fmtDate(d.date,true)}</span>`).join('')}</div>
+          <div class="chart-x">${(x.days||[]).map(d=>`<span>${fmtDate(d.date,true)}</span>`).join('')}</div>
         </div>
       </div>
       <div class="card">
         <div class="card-head">
-          <div><h3>Zəng statusları</h3><p>Tapşırıqlar üzrə bölgü</p></div>${ico('chart',18)}
+          <div><h3>Vaxt göstəriciləri</h3><p>Müsahibə vaxt analitikası</p></div>${ico('clock',18)}
         </div>
         <div class="card-body">
-          ${Object.entries(x.byStatus).filter(([k])=>['completed','pending','callback','refused','no_answer','busy'].includes(k)).map(([k,val])=>`
-            <div class="status-row">
-              <label>${OUTCOME[k]}</label>
-              <div class="progress-line"><span style="width:${z.totalAssignments?val/z.totalAssignments*100:0}%;background:${({completed:'#25b999',pending:'#a5a8bb',callback:'#efb158',refused:'#ef7385',no_answer:'#8b81eb',busy:'#9ec6e9'})[k]}"></span></div>
-              <b>${val}</b>
-            </div>
-          `).join('')}
-          <div class="highlight-box">${ico('info',14)} &nbsp; Tamamlanma faizi: <b>${z.completionRate||0}%</b></div>
+          <div class="info-pair"><span>Bir sorğuya orta vaxt</span><b>${formatTimeSpent(z.averageDurationSec)}</b></div>
+          <div class="info-pair"><span>Ümumi qeydə alınan vaxt</span><b>${formatTimeSpent(z.totalDurationSec)}</b></div>
+          <div class="info-pair"><span>Cəmi respondent</span><b>${pl(z.respondents)}</b></div>
+          <div class="highlight-box mt20">
+            ${ico('spark',14)} &nbsp; Tapşırıq təyinatına ehtiyac yoxdur. Sorğuya klikləyib dərhal başlayın.
+          </div>
         </div>
       </div>
     </div>
     <div class="card mt20">
       <div class="card-head">
-        <div><h3>Son fəaliyyətlər</h3><p>Ən son yenilənən zəng tapşırıqları</p></div>
-        <button class="section-link" data-action="nav" data-page="tasks">Hamısına bax ${ico('arrow',14)}</button>
+        <div><h3>Son tamamlanan müsahibələr</h3><p>Ən son keçirilən sorğular və sərf olunan vaxt</p></div>
+        ${leader?`<button class="section-link" data-action="nav" data-page="reports">Hesabatlara bax ${ico('arrow',14)}</button>`:''}
       </div>
       <div class="table-wrap">
         <table class="table">
           <thead>
-            <tr><th>Respondent</th><th>Sorğu</th>${leader?'<th>Operator</th>':''}<th>Status</th><th>Son yenilənmə</th><th></th></tr>
+            <tr><th>Respondent</th><th>Sorğu</th><th>Əməkdaş</th><th>Tarix</th><th>Sərf olunan vaxt</th></tr>
           </thead>
           <tbody>
-            ${x.recent.map(a=>`
+            ${(x.recent||[]).map(a=>`
               <tr>
-                <td><b>${esc(a.contact?.fullName||'—')}</b><div class="table-desc">${esc(a.contact?.phone)}</div></td>
-                <td>${esc(a.survey||'—')}</td>
-                ${leader?`<td>${esc(a.agent||'—')}</td>`:''}
-                <td>${outcomeBadge(a.status)}</td>
-                <td>${fmtTime(a.updatedAt)}</td>
-                <td><button class="btn btn-sm" data-action="start-interview" data-id="${a.id}">${ico('chevron',14)} Aç</button></td>
+                <td><b>${esc(a.contact)}</b><div class="table-desc">${esc(a.phone)}</div></td>
+                <td><b>${esc(a.survey)}</b></td>
+                <td><span class="role-badge agent">${esc(a.agent)}</span></td>
+                <td>${fmtTime(a.submittedAt)}</td>
+                <td><span class="time-spent-badge">${ico('clock',12)} ${formatTimeSpent(a.durationSec)}</span></td>
               </tr>
-            `).join('')||`<tr><td colspan="6">${empty('phone','Tapşırıq tapılmadı','Yeni tapşırıqlar əlavə etdikdən sonra burada görünəcək.')}</td></tr>`}
+            `).join('')||`<tr><td colspan="5">${empty('phone','Hələ müsahibə keçirilməyib','Sorğular səhifəsindən ilk müsahibəyə başlayın.')}</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -381,7 +393,7 @@ function surveysPage(){
   let list=filtered(state.surveys,s=>s.title+' '+s.description+' '+s.category);
   if(state.statusFilter!=='all')list=list.filter(s=>s.status===state.statusFilter);
   return `
-    ${heading('SORĞU STUDİYASI','Sorğu kitabxanası','Dinamik sual modulları, ictimai paylaşım və zəng təyinatı.',leader?`<button class="btn btn-primary" data-action="new-survey">${ico('plus',16)} Yeni sorğu yarat</button>`:'')}
+    ${heading('SORĞULAR','Sorğu kitabxanası','Sorğuları seçib birbaşa müsahibəyə başlayın və ya redaktə edin.',leader?`<button class="btn btn-primary" data-action="new-survey">${ico('plus',16)} Yeni sorğu yarat</button>`:'')}
     <div class="filter-strip">
       <input class="filter-input" data-local-search placeholder="Sorğu adı və kateqoriya üzrə axtar..." value="${esc(state.filter)}">
       <select class="filter-select" data-status-filter>
@@ -394,18 +406,18 @@ function surveysPage(){
       ${list.map(s=>`
         <article class="card survey-card">
           <div class="survey-top">
-            <div class="survey-icon">${ico('surveys',23)}</div>
+            <div class="survey-icon clickable" data-action="start-survey" data-id="${s.id}" title="Sorğuya başla">${ico('surveys',23)}</div>
             <div class="gap10">
               <span class="badge ${s.access==='private'?'draft':'active'}">${s.access==='private'?'Private':'Public'}</span>
               ${outcomeBadge(s.status)}
             </div>
           </div>
-          <h3>${esc(s.title)}</h3>
+          <h3 class="clickable" data-action="${s.status==='active'?'start-survey':'edit-survey'}" data-id="${s.id}">${esc(s.title)}</h3>
           <p>${esc(s.description||'Sorğu haqqında təsvir əlavə edilməyib.')}</p>
           <div class="survey-metrics">
             <span><b>${s.questionsCount}</b>Sual</span>
-            <span><b>${s.assignmentsCount}</b>Təyinat</span>
             <span><b>${s.responsesCount}</b>Cavab</span>
+            <span><b>${s.contactsCount||0}</b>Bazada</span>
             <span><b>${s.estimatedMinutes} dəq.</b>Müddət</span>
           </div>
           ${s.access!=='private'&&s.status==='active'?`
@@ -414,14 +426,17 @@ function surveysPage(){
               <button class="btn btn-sm btn-quiet" data-action="copy-share-link" data-id="${s.id}" title="Linki kopyala">${ico('copy',13)} Kopyala</button>
             </div>
           `:''}
-          <div class="survey-actions">
+          <div class="survey-actions" style="margin-top:16px;display:flex;gap:7px;flex-wrap:wrap">
+            ${s.status==='active'?`
+              <button class="btn btn-primary" style="flex:2" data-action="start-survey" data-id="${s.id}">
+                ${ico('phone',15)} Sorğuya başla
+              </button>
+            `:''}
             ${leader?`
-              <button class="btn btn-primary" data-action="edit-survey" data-id="${s.id}">${ico('edit',14)} Redaktə</button>
+              <button class="btn" style="flex:1" data-action="edit-survey" data-id="${s.id}">${ico('edit',14)} Redaktə</button>
               <button class="btn btn-icon" title="Surətini yarat" data-action="duplicate-survey" data-id="${s.id}">${ico('copy',15)}</button>
               <button class="btn btn-icon" title="Statusu dəyiş" data-action="survey-status" data-id="${s.id}">${ico('more',16)}</button>
-            `:`
-              <button class="btn btn-primary w100" data-action="nav" data-page="tasks">${ico('phone',14)} Tapşırıqlara bax</button>
-            `}
+            `:''}
           </div>
         </article>
       `).join('')}
@@ -430,84 +445,89 @@ function surveysPage(){
 }
 
 function contactsPage(){
-  let list=filtered(state.contacts,c=>c.fullName+' '+c.phone+' '+c.email+' '+c.region);
   const leader=isLeader();
+  const allContacts=state.contacts;
+  let list=allContacts;
+  if(state.selectedSector==='unassigned')list=allContacts.filter(c=>!c.surveyId);
+  else if(state.selectedSector!=='all')list=allContacts.filter(c=>c.surveyId===state.selectedSector);
+  list=filtered(list,c=>(c.fullName||'')+' '+(c.phone||'')+' '+(c.email||'')+' '+(c.region||''));
+
+  const currentSurvey=state.surveys.find(s=>s.id===state.selectedSector);
+
   return `
-    ${heading('RESPONDENT BAZASI','Respondentlər','Əlaqə məlumatlarını idarə edin və sorğulara təyin edin.',`
-      ${leader?`<button class="btn" data-action="import-contacts">${ico('upload',16)} CSV idxalı</button>`:''}
-      <button class="btn btn-primary" data-action="new-contact">${ico('plus',16)} Respondent əlavə et</button>
+    ${heading('RESPONDENT BAZASI','Baza və Sorğu Sektorları','Hər sorğu üçün ayrılmış sektor üzrə respondentləri idarə edin və müsahibəyə başlayın.',`
+      ${leader?`<button class="btn" data-action="import-contacts" data-sector="${state.selectedSector!=='all'&&state.selectedSector!=='unassigned'?state.selectedSector:''}">${ico('upload',16)} Sektora CSV idxalı</button>`:''}
+      <button class="btn btn-primary" data-action="new-contact" data-sector="${state.selectedSector!=='all'&&state.selectedSector!=='unassigned'?state.selectedSector:''}">${ico('plus',16)} Respondent əlavə et</button>
     `)}
+    <div class="sector-tabs-wrap">
+      <button class="sector-tab ${state.selectedSector==='all'?'active':''}" data-action="select-sector" data-sector="all">
+        Bütün sektorlar <span class="sector-tab-count">${allContacts.length}</span>
+      </button>
+      ${state.surveys.map(s=>{
+        const count=allContacts.filter(c=>c.surveyId===s.id).length;
+        return `
+          <button class="sector-tab ${state.selectedSector===s.id?'active':''}" data-action="select-sector" data-sector="${s.id}">
+            ${ico('surveys',14)} ${esc(s.title)} <span class="sector-tab-count">${count}</span>
+          </button>`;
+      }).join('')}
+      <button class="sector-tab ${state.selectedSector==='unassigned'?'active':''}" data-action="select-sector" data-sector="unassigned">
+        Ümumi / Təyinsiz <span class="sector-tab-count">${allContacts.filter(c=>!c.surveyId).length}</span>
+      </button>
+    </div>
+    ${currentSurvey?`
+      <div class="card" style="padding:16px 20px;margin-bottom:18px;background:#f8fafc;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+        <div>
+          <span class="eyebrow">SEKTOR</span>
+          <h3 style="margin:2px 0 0;font-size:16px">${esc(currentSurvey.title)} sektoru</h3>
+          <small class="muted">Bu sektor üzrə bazada cəmi ${allContacts.filter(c=>c.surveyId===currentSurvey.id).length} respondent var.</small>
+        </div>
+        <div class="gap10">
+          <button class="btn btn-primary btn-sm" data-action="start-survey" data-id="${currentSurvey.id}">
+            ${ico('phone',14)} Bu sorğuya başla
+          </button>
+          <button class="btn btn-sm" data-action="open-report" data-id="${currentSurvey.id}">
+            ${ico('chart',14)} Sektor hesabatı
+          </button>
+        </div>
+      </div>
+    `:''}
     <div class="filter-strip">
       <input class="filter-input" data-local-search placeholder="Ad, telefon və ya region üzrə axtar..." value="${esc(state.filter)}">
       <span class="pill">${pl(list.length)} respondent</span>
-      ${state.selectedContacts.size?`<span class="select-count">${state.selectedContacts.size} seçilib</span><button class="btn btn-primary" data-action="assign-selected">${ico('plus',14)} Sorğuya təyin et</button>`:''}
     </div>
     <div class="card">
       <div class="table-wrap">
         <table class="table">
           <thead>
             <tr>
-              <th><input class="check" type="checkbox" data-action="select-all-contacts" ${list.length&&list.every(c=>state.selectedContacts.has(c.id))?'checked':''}></th>
-              <th>Ad və soyad</th><th>Telefon</th><th>Region</th><th>E-poçt</th><th>Əlavə edilmə</th><th></th>
+              <th>Ad və soyad</th><th>Telefon</th><th>Region</th><th>E-poçt</th><th>Sorğu Sektoru</th><th>Əməliyyat</th>
             </tr>
           </thead>
           <tbody>
-            ${list.map(c=>`
-              <tr>
-                <td><input class="check contact-check" type="checkbox" data-id="${c.id}" ${state.selectedContacts.has(c.id)?'checked':''}></td>
-                <td><div class="gap10"><span class="person-avatar" style="height:33px;width:33px;border-radius:9px;font-size:11px">${esc(initials(c.fullName))}</span><b>${esc(c.fullName)}</b></div></td>
-                <td>${esc(c.phone)}</td>
-                <td>${esc(c.region||'—')}</td>
-                <td>${esc(c.email||'—')}</td>
-                <td>${fmtDate(c.createdAt)}</td>
-                <td><button class="btn btn-icon btn-sm" data-action="edit-contact" data-id="${c.id}" title="Dəyişdir">${ico('edit',15)}</button></td>
-              </tr>
-            `).join('')||`<tr><td colspan="7">${empty('contacts','Respondent tapılmadı','Yeni respondent əlavə edin və ya CSV faylı idxal edin.')}</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    </div>`;
-}
-
-function tasksPage(){
-  let list=filtered(state.assignments,a=>(a.contact?.fullName||'')+' '+(a.contact?.phone||'')+' '+a.survey+' '+a.agent);
-  if(state.statusFilter!=='all')list=list.filter(a=>a.status===state.statusFilter);
-  const leader=isLeader();
-  return `
-    ${heading('ZƏNG MƏRKƏZİ','Zəng tapşırıqları','Respondentlərlə əlaqəni və müsahibə statuslarını bir yerdə idarə edin.',leader?`<button class="btn btn-primary" data-action="assign-selected">${ico('plus',16)} Yeni təyinat</button>`:'')}
-    <div class="filter-strip">
-      <input class="filter-input" data-local-search placeholder="Respondent, telefon və ya sorğu üzrə axtar..." value="${esc(state.filter)}">
-      <select class="filter-select" data-status-filter>
-        <option value="all">Bütün statuslar</option>
-        ${['pending','in_progress','callback','no_answer','busy','refused','completed'].map(v=>`<option value="${v}" ${state.statusFilter===v?'selected':''}>${OUTCOME[v]}</option>`).join('')}
-      </select>
-      <span class="pill">${list.length} tapşırıq</span>
-    </div>
-    <div class="card">
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr><th>Respondent</th><th>Sorğu</th>${leader?'<th>Operator</th>':''}<th>Cəhd</th><th>Prioritet</th><th>Status</th><th></th></tr>
-          </thead>
-          <tbody>
-            ${list.map(a=>`
-              <tr>
-                <td><b>${esc(a.contact?.fullName||'—')}</b><div class="table-desc">${ico('phone',11)} ${esc(a.contact?.phone||'—')}</div></td>
-                <td><span style="display:block;max-width:225px;line-height:1.55">${esc(a.survey||'—')}</span>${a.callbackAt?`<div class="table-desc">${ico('clock',11)} ${fmtTime(a.callbackAt)}</div>`:''}</td>
-                ${leader?`<td>${esc(a.agent)}</td>`:''}
-                <td>${a.attempts||0}</td>
-                <td><span class="pill" style="${a.priority==='high'?'color:#d68a39;background:#fff5e7':''}">${a.priority==='high'?'Yüksək':a.priority==='low'?'Aşağı':'Normal'}</span></td>
-                <td>${outcomeBadge(a.status)}</td>
-                <td>
-                  <div class="inline-actions">
-                    <button class="btn btn-sm ${a.status==='completed'?'':'btn-primary'}" data-action="start-interview" data-id="${a.id}">
-                      ${ico(a.status==='completed'?'eye':'phone',14)} ${a.status==='completed'?'Bax':'Başla'}
-                    </button>
-                    <button class="btn btn-icon btn-sm" title="Zəng nəticəsi" data-action="call-result" data-id="${a.id}">${ico('more',16)}</button>
-                  </div>
-                </td>
-              </tr>
-            `).join('')||`<tr><td colspan="8">${empty('phone','Zəng tapşırığı tapılmadı','Yeni təyinat yaradın və ya axtarış filtrini dəyişin.')}</td></tr>`}
+            ${list.map(c=>{
+              const survey=state.surveys.find(s=>s.id===c.surveyId);
+              const targetSurveyId=c.surveyId||(state.selectedSector!=='all'&&state.selectedSector!=='unassigned'?state.selectedSector:state.surveys[0]?.id);
+              return `
+                <tr>
+                  <td><div class="gap10"><span class="person-avatar" style="height:33px;width:33px;border-radius:9px;font-size:11px">${esc(initials(c.fullName))}</span><b>${esc(c.fullName)}</b></div></td>
+                  <td><b>${esc(c.phone)}</b></td>
+                  <td>${esc(c.region||'—')}</td>
+                  <td>${esc(c.email||'—')}</td>
+                  <td>
+                    ${survey?`<span class="badge in_progress" title="${esc(survey.title)}">${esc(survey.title.slice(0,25))}${survey.title.length>25?'...':''}</span>`:'<span class="badge draft">Ümumi sektor</span>'}
+                  </td>
+                  <td>
+                    <div class="inline-actions">
+                      ${targetSurveyId?`
+                        <button class="btn btn-primary btn-sm" data-action="start-survey-with-contact" data-survey-id="${targetSurveyId}" data-contact-id="${c.id}" title="Sorğuya başla">
+                          ${ico('phone',13)} Başla
+                        </button>
+                      `:''}
+                      <button class="btn btn-icon btn-sm" data-action="edit-contact" data-id="${c.id}" title="Dəyişdir">${ico('edit',14)}</button>
+                    </div>
+                  </td>
+                </tr>`;
+            }).join('')||`<tr><td colspan="6">${empty('contacts','Bu sektorda respondent tapılmadı','Yuxarıdakı düymədən bu sektora yeni respondent əlavə edin və ya CSV idxal edin.')}</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -517,7 +537,7 @@ function tasksPage(){
 function reportsPage(){
   const list=state.surveys;
   return `
-    ${heading('ANALİTİKA','Hesabatlar','Sorğu nəticələrini analiz edin, cavab bölgüsünə baxın və CSV ixrac edin.')}
+    ${heading('ANALİTİKA VƏ HESABATLAR','Hesabatlar','Sorğu nəticələri, respondentlərin vaxt reyestri və hər əməkdaşın ümumi vaxt hesabatı.')}
     ${!state.report?`
       <div class="grid cols-3">
         ${list.map(s=>`
@@ -533,7 +553,8 @@ function reportsPage(){
             <p>${esc(s.description)}</p>
             <div class="survey-metrics">
               <span><b>${s.responsesCount}</b>Cavab</span>
-              <span><b>${s.assignmentsCount}</b>Təyinat</span>
+              <span><b>${s.contactsCount||0}</b>Bazada</span>
+              <span><b>${formatTimeSpent(s.totalDurationSec||0)}</b>Ümumi vaxt</span>
             </div>
             <div class="survey-actions">
               <button class="btn btn-primary" data-action="open-report" data-id="${s.id}">${ico('chart',15)} Hesabatı aç</button>
@@ -547,60 +568,155 @@ function reportsPage(){
 
 function reportDetail(){
   const r=state.report;
+  let respList=r.responses||[];
+  if(state.filter){
+    const needle=state.filter.toLowerCase().trim();
+    respList=respList.filter(x=>(x.contact||'').toLowerCase().includes(needle)||(x.phone||'').includes(needle)||(x.agent||'').toLowerCase().includes(needle));
+  }
+
   return `
     <button class="btn" style="margin-bottom:19px" data-action="close-report">${ico('back',14)} Bütün hesabatlar</button>
     <div class="card" style="padding:24px 26px;margin-bottom:19px">
       <div style="display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap">
         <div>
-          <div class="eyebrow">SORĞU HESABATI</div>
-          <h2 style="font-size:21px;margin:0 0 10px">${esc(r.survey.title)}</h2>
+          <div class="eyebrow">SORĞU HESABATI VƏ VAXT ANALİTİKASI</div>
+          <h2 style="font-size:22px;margin:0 0 8px">${esc(r.survey.title)}</h2>
           ${outcomeBadge(r.survey.status)}
         </div>
-        <button class="btn btn-primary" data-action="export-report" data-id="${r.survey.id}">${ico('download',16)} Excel üçün CSV</button>
+        <button class="btn btn-primary" data-action="export-report" data-id="${r.survey.id}">${ico('download',16)} Excel / CSV ixrac</button>
       </div>
       <div class="grid cols-4 mt20">
-        <div class="report-metric"><span>Cəmi təyinat</span><b>${r.totalAssigned}</b></div>
-        <div class="report-metric"><span>Tamamlanan cavab</span><b>${r.completed}</b></div>
-        <div class="report-metric"><span>İcra faizi</span><b>${r.totalAssigned?Math.round(r.completed/r.totalAssigned*100):0}%</b></div>
-        <div class="report-metric"><span>Ort. müsahibə müddəti</span><b>${Math.round(r.averageDuration/60)} dəq.</b></div>
+        <div class="report-metric"><span>Tamamlanan müsahibə</span><b>${r.completed}</b></div>
+        <div class="report-metric"><span>Ümumi sərf olunan vaxt</span><b style="color:#4f46e5">${formatTimeSpent(r.totalDurationAll)}</b></div>
+        <div class="report-metric"><span>Bir sorğuya orta vaxt</span><b>${formatTimeSpent(r.averageDuration)}</b></div>
+        <div class="report-metric"><span>İştirak edən əməkdaş</span><b>${(r.userStats||[]).length} nəfər</b></div>
       </div>
     </div>
     <div class="card">
       <div class="tabs">
-        <button class="tab ${state.reportTab==='summary'?'active':''}" data-action="report-tab" data-tab="summary">${ico('chart',15)} &nbsp; Sual analitikası</button>
-        <button class="tab ${state.reportTab==='responses'?'active':''}" data-action="report-tab" data-tab="responses">${ico('list',15)} &nbsp; Cavab reyestri</button>
+        <button class="tab ${state.reportTab==='responses'?'active':''}" data-action="report-tab" data-tab="responses">${ico('list',15)} &nbsp; Respondent Reyestri və Vaxt Bölgüsü (${r.completed})</button>
+        <button class="tab ${state.reportTab==='summary'?'active':''}" data-action="report-tab" data-tab="summary">${ico('chart',15)} &nbsp; Sual Analitikası</button>
       </div>
-      ${state.reportTab==='summary'?r.questions.map((q,i)=>`
-        <div class="report-q">
-          <div class="gap10"><span class="pill">${i+1}</span><h4 style="margin:0">${esc(q.title)}</h4></div>
-          <small>${typeLabel(q.type)} · ${q.answered} cavab</small>
-          ${q.average!==null?`<div class="highlight-box">Orta göstərici: <b>${q.average}</b></div>`:''}
-          ${q.counts.length?q.counts.slice(0,9).map(([label,count])=>`
-            <div class="report-entry">
-              <span>${esc(label)}</span>
-              <div class="progress-line"><span style="width:${q.answered?Math.min(100,count/q.answered*100):0}%;background:#7969ea"></span></div>
-              <b>${count}</b>
-            </div>
-          `).join(''):q.samples.length?q.samples.map(v=>`<p class="note" style="margin:13px 0">“${esc(v)}”</p>`).join(''):'<div class="note mt12">Məlumat yoxdur və ya cavablar sərbəst formatdadır.</div>'}
-        </div>
-      `).join(''): `
-        <div class="table-wrap">
-          <table class="table">
-            <thead>
-              <tr><th>Respondent / IP</th><th>Operator / Növ</th><th>Tarix</th><th>Müddət</th><th></th></tr>
-            </thead>
-            <tbody>
-              ${r.responses.map(x=>`
+      ${state.reportTab==='responses'?`
+        <div style="padding:0 24px 18px">
+          <div class="filter-strip" style="margin-bottom:14px">
+            <input class="filter-input" data-local-search placeholder="Respondent, telefon və ya əməkdaş üzrə axtar..." value="${esc(state.filter)}">
+            <span class="pill">${respList.length} respondent göstərilir</span>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
                 <tr>
-                  <td><b>${esc(x.contact||'—')}</b>${x.ip?`<div class="table-desc">${ico('shield',11)} ${esc(x.ip)}</div>`:''}</td>
-                  <td>${x.isPublic?'<span class="role-badge public">İctimai link</span>':esc(x.agent||'—')}</td>
-                  <td>${fmtTime(x.submittedAt)}</td>
-                  <td>${Math.ceil(x.durationSec/60)} dəq.</td>
-                  <td><button class="btn btn-sm" data-action="response-details" data-id="${x.id}">${ico('eye',14)} Bax</button></td>
+                  <th style="width:50px">№</th>
+                  <th>Respondent</th>
+                  <th>Telefon</th>
+                  <th>Əməkdaş / Operator</th>
+                  <th>Tarix və Saat</th>
+                  <th>SƏRF OLUNAN VAXT (MÜDDƏT)</th>
+                  <th></th>
                 </tr>
-              `).join('')||'<tr><td colspan="5">Cavab yoxdur.</td></tr>'}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                ${respList.map((x,idx)=>`
+                  <tr>
+                    <td><b>${idx+1}</b></td>
+                    <td><b>${esc(x.contact||'—')}</b>${x.ip?`<div class="table-desc">${ico('shield',11)} ${esc(x.ip)}</div>`:''}</td>
+                    <td><b>${esc(x.phone||'—')}</b></td>
+                    <td>
+                      <span class="role-badge ${x.isPublic?'public':'agent'}">
+                        ${esc(x.agent)}${x.agentUsername?` (@${esc(x.agentUsername)})`:''}
+                      </span>
+                    </td>
+                    <td>${fmtTime(x.submittedAt)}</td>
+                    <td>
+                      <span class="time-spent-badge">
+                        ${ico('clock',13)} ${formatTimeSpent(x.durationSec)}
+                      </span>
+                    </td>
+                    <td><button class="btn btn-sm" data-action="response-details" data-id="${x.id}">${ico('eye',14)} Cavablar</button></td>
+                  </tr>
+                `).join('')||'<tr><td colspan="7">Cavab tapılmadı.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+          <div class="operator-summary-card">
+            <div class="operator-summary-head">
+              <div>
+                <h3 style="margin:0;font-size:16px">ƏMƏKDAŞLARIN ÜMUMİ VAXT VƏ İCRA İCMALI</h3>
+                <small class="muted">Hər bir istifadəçinin bu sorğuya sərf etdiyi cəmi vaxt və fərdi statistikası</small>
+              </div>
+              <span class="time-total-badge">${ico('clock',14)} Cəmi: ${formatTimeSpent(r.totalDurationAll)}</span>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Əməkdaş</th>
+                    <th>Rol</th>
+                    <th>Tamamlanan sorğu sayı</th>
+                    <th>Bir sorğuya orta vaxt</th>
+                    <th>Ən qısa müsahibə</th>
+                    <th>Ən uzun müsahibə</th>
+                    <th>ÜMUMİ SƏRF OLUNAN VAXT</th>
+                    <th>Vaxt payı</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(r.userStats||[]).map(u=>`
+                    <tr>
+                      <td>
+                        <div class="gap10">
+                          <span class="person-avatar" style="height:32px;width:32px;border-radius:8px;font-size:11px">${esc(initials(u.name))}</span>
+                          <div>
+                            <b>${esc(u.name)}</b>
+                            ${u.username?`<div class="table-desc">@${esc(u.username)}</div>`:''}
+                          </div>
+                        </div>
+                      </td>
+                      <td>${roleBadge(u.role)}</td>
+                      <td><b>${u.count}</b> respondent</td>
+                      <td><b>${formatTimeSpent(u.avgDurationSec)}</b></td>
+                      <td><span class="muted">${formatTimeSpent(u.minDurationSec)}</span></td>
+                      <td><span class="muted">${formatTimeSpent(u.maxDurationSec)}</span></td>
+                      <td><b class="time-total-badge">${ico('clock',13)} ${formatTimeSpent(u.totalDurationSec)}</b></td>
+                      <td style="min-width:110px">
+                        <div class="gap10">
+                          <div class="progress-line" style="height:8px"><span style="width:${u.percentage||0}%;background:#6656e9"></span></div>
+                          <span style="font-size:11px;font-weight:700">${u.percentage||0}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  `).join('')||'<tr><td colspan="8">Statistika mövcud deyil.</td></tr>'}
+                  <tr style="background:#f8fafc;font-weight:800">
+                    <td colspan="2"><b>CƏMİ YEKUN</b></td>
+                    <td><b>${r.completed} respondent</b></td>
+                    <td><b>${formatTimeSpent(r.averageDuration)}</b></td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td><b class="time-total-badge" style="background:#4338ca;color:white;border-color:#4338ca">${formatTimeSpent(r.totalDurationAll)}</b></td>
+                    <td><b>100%</b></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `:`
+        <div style="padding:10px 24px 24px">
+          ${r.questions.map((q,i)=>`
+            <div class="report-q">
+              <div class="gap10"><span class="pill">${i+1}</span><h4 style="margin:0">${esc(q.title)}</h4></div>
+              <small>${typeLabel(q.type)} · ${q.answered} cavab</small>
+              ${q.average!==null?`<div class="highlight-box">Orta göstərici: <b>${q.average}</b></div>`:''}
+              ${q.counts.length?q.counts.slice(0,9).map(([label,count])=>`
+                <div class="report-entry">
+                  <span>${esc(label)}</span>
+                  <div class="progress-line"><span style="width:${q.answered?Math.min(100,count/q.answered*100):0}%;background:#7969ea"></span></div>
+                  <b>${count}</b>
+                </div>
+              `).join(''):q.samples.length?q.samples.map(v=>`<p class="note" style="margin:13px 0">“${esc(v)}”</p>`).join(''):'<div class="note mt12">Məlumat yoxdur və ya cavablar sərbəst formatdadır.</div>'}
+            </div>
+          `).join('')}
         </div>
       `}
     </div>`;
@@ -612,7 +728,6 @@ function teamPage(){
     ${heading('İSTİFADƏÇİ İDARƏETMƏSİ','Operator heyəti','İcazələri, hesabları və operatorların fəaliyyətini izləyin.',admin?`<button class="btn btn-primary" data-action="new-user">${ico('plus',16)} Yeni əməkdaş</button>`:'')}
     <div class="grid cols-3">
       ${u.map(person=>{
-        const assigned=state.assignments.filter(a=>a.assignedTo===person.id),done=assigned.filter(a=>a.status==='completed').length;
         return `
           <div class="card" style="padding:24px">
             <div class="gap10">
@@ -626,12 +741,10 @@ function teamPage(){
             <div class="separator"></div>
             <div class="gap10" style="justify-content:space-between;font-size:11px;color:#8491a5">
               ${roleBadge(person.role)}
-              <span>Tapşırıq: <b style="color:var(--ink)">${assigned.length}</b></span>
-              <span>Cavab: <b style="color:var(--ink)">${done}</b></span>
+              <span>Qeydiyyat: <b style="color:var(--ink)">${fmtDate(person.createdAt,true)}</b></span>
             </div>
-            <div class="metric-bar"><span style="width:${assigned.length?done/assigned.length*100:0}%"></span></div>
-            <div class="gap10" style="justify-content:space-between;margin-top:14px">
-              <span class="note">İcra: ${assigned.length?Math.round(done/assigned.length*100):0}%</span>
+            <div class="gap10" style="justify-content:space-between;margin-top:16px">
+              <span class="note">${person.active?'Sistemdə aktivdir':'Deaktiv edilib'}</span>
               ${admin?`<button class="btn btn-sm" data-action="edit-user" data-id="${person.id}">${ico('edit',13)} İdarə et</button>`:`<span class="pill">${person.active?'Aktiv':'Deaktiv'}</span>`}
             </div>
           </div>`;
@@ -707,24 +820,24 @@ function settingsPage(){
       </div>
       <div class="card list-card">
         <h3>Platforma haqqında</h3>
-        <p class="muted" style="font-size:12px">SorğuPro v1.0 · Professional Enterprise Edition</p>
+        <p class="muted" style="font-size:12px">SorğuPro Enterprise Edition · Birbaşa Müsahibə Sistemi</p>
         <div class="separator"></div>
         <div class="gap10">
-          ${ico('shield',34)}
+          ${ico('clock',34)}
           <div>
-            <b>Rol əsaslı nəzarət və IP audit qeydiyyatı</b>
-            <p class="note mt12">Administrator, Redaktor və Operator rolları, şifrələrin kriptoqrafik heşlənməsi və hər bir əməliyyatın real IP ünvanı ilə fəaliyyət tarixçəsi.</p>
+            <b>Dəqiq Vaxt Hesabatları</b>
+            <p class="note mt12">Hər respondentə sərf olunan vaxt dərhal hesabata əlavə olunur və hər bir əməkdaşın ümumi iş vaxtı hesablanır.</p>
           </div>
         </div>
         <div class="separator"></div>
         <div class="gap10">
-          ${ico('link',34)}
+          ${ico('layers',34)}
           <div>
-            <b>İctimai və daxili sorğu rejimləri</b>
-            <p class="note mt12">İctimai link ilə daxil olmadan birbaşa respondent sorğuları və daxili telefon operatoru təyinatları.</p>
+            <b>Bazada Sorğu Sektorları</b>
+            <p class="note mt12">Hər bir sorğu üçün ayrıca respondent sektoru ayrılıb və birbaşa o sektordan sorğuya başlamaq mümkündür.</p>
           </div>
         </div>
-        <div class="hint mt20">Məlumatlar yerli qovluqda saxlanılır. Serverin <b>data/</b> qovluğunu mütəmadi yedəkləyin.</div>
+        <div class="hint mt20">Məlumatlar yerli serverdə saxlanılır. Serverin <b>data/</b> qovluğunu mütəmadi yedəkləyin.</div>
       </div>
     </div>`;
 }
@@ -917,9 +1030,9 @@ function builderPreview(){
 
 // ——— DYNAMIC SURVEY RENDERER ———
 const qVal=(answers,id)=>answers[id];
-function variantFor(q,assignmentId){
+function variantFor(q,seedId){
   const options=q.options||[];
-  return options.length?options[(q.id.charCodeAt(0)+(assignmentId?.charCodeAt(0)||0))%options.length]:null;
+  return options.length?options[(q.id.charCodeAt(0)+(seedId?.charCodeAt(0)||0))%options.length]:null;
 }
 
 function renderAnswer(q,answers={},preview=false){
@@ -948,7 +1061,7 @@ function renderAnswer(q,answers={},preview=false){
   if(['single','multiple','yesno','image_choice'].includes(type))html=options(type==='multiple',type==='image_choice');
   else if(type==='dropdown')html=`<select class="answer-input" data-answer="${questionId}" ${disabled}><option value="">Variant seçin...</option>${opts.map(o=>`<option value="${esc(o.label)}" ${checked(o.label)?'selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
   else if(['text_ab','image_ab'].includes(type)){
-    const variant=variantFor(q,state.interview?.assignment?.id);
+    const variant=variantFor(q,'seed');
     html=`
       <div class="highlight-box" style="margin:0 0 10px">${type==='image_ab'&&variant?.image?`<img src="${esc(variant.image)}" alt="Vizual variant" style="max-width:100%;max-height:180px">`:esc(variant?.label||'Variant yoxdur')}</div>
       <div class="choice-grid">
@@ -995,19 +1108,45 @@ function activeQuestions(){
   return s.questions.filter(q=>q.sectionId===s.sections[state.interviewIndex].id&&conditionMatch(q,state.interview.answers));
 }
 
+// ——— DIRECT SURVEY INTERVIEW FLOW ———
+function startDirectInterview(surveyId, contactId=null){
+  const survey=state.surveys.find(s=>s.id===surveyId);
+  if(!survey)return notify('Sorğu tapılmadı.',true);
+  const contact=contactId?state.contacts.find(c=>c.id===contactId):null;
+  state.interview={
+    survey,
+    contact: contact||null,
+    respondentName: contact?.fullName||'',
+    respondentPhone: contact?.phone||'',
+    answers:{},
+    startTime: Date.now()
+  };
+  state.interviewIndex=0;
+  state.interviewDone=false;
+  state.page='interview';
+  state.dirty=false;
+  location.hash='#/interview';
+  render();
+  window.scrollTo(0,0);
+}
+
 function interviewPage(){
   const x=state.interview;
-  if(!x)return empty('surveys','Müsahibə seçilməyib','Zəng tapşırıqları səhifəsindən respondent seçin.');
+  if(!x)return empty('surveys','Müsahibə seçilməyib','Sorğular səhifəsindən aktiv sorğu seçin.');
   if(state.interviewDone)return `<div class="card" style="max-width:680px;margin:60px auto">${successPage()}</div>`;
-  const {survey:s,contact:c,assignment:a}=x,sec=s.sections[state.interviewIndex],locked=x.response?.status==='completed',p=(state.interviewIndex+1)/s.sections.length*100;
+  const {survey:s}=x,sec=s.sections[state.interviewIndex],p=(state.interviewIndex+1)/s.sections.length*100;
+  const surveyContacts=state.contacts.filter(c=>c.surveyId===s.id||!c.surveyId);
+
   return `
-    ${heading('CANLI MÜSAHİBƏ','Sorğunun doldurulması','Telefon danışığı zamanı cavabları bölmələr üzrə qeyd edin.',`<button class="btn" data-action="nav" data-page="tasks">${ico('back',15)} Tapşırıqlar</button>`)}
+    ${heading('CANLI MÜSAHİBƏ',esc(s.title),'Cavabları daxil edin. Hər respondentə sərf olunan vaxt avtomatik qeydə alınır.',`
+      <button class="btn" data-action="nav" data-page="surveys">${ico('back',15)} Sorğulara qayıt</button>
+    `)}
     <div class="interview-layout">
       <div class="card interview-main">
         <div class="interview-hero">
-          <div class="tiny">SORĞU № ${state.interviewIndex+1} / ${s.sections.length} BÖLMƏ</div>
+          <div class="tiny">BÖLMƏ ${state.interviewIndex+1} / ${s.sections.length} · CANLI SORĞU</div>
           <h2>${esc(s.title)}</h2>
-          <p>${esc(s.description)}</p>
+          <p>${esc(s.description||'Müsahibəni ardıcıllıqla tamamlayın.')}</p>
           <div class="steps">${s.sections.map((_,i)=>`<button data-action="interview-step" data-index="${i}" class="${i===state.interviewIndex?'active':i<state.interviewIndex?'done':''}" title="${i+1}-ci bölmə"></button>`).join('')}</div>
         </div>
         <div class="interview-section">
@@ -1015,49 +1154,84 @@ function interviewPage(){
             <div><h3>${esc(sec.title)}</h3><p class="muted">${esc(sec.description||'Sualları ardıcıllıqla cavablandırın.')}</p></div>
             <span class="pill">${Math.round(p)}%</span>
           </div>
-          ${activeQuestions().map(q=>renderAnswer(q,x.answers,locked)).join('')||`<p class="note" style="padding:20px">Bu bölmədə göstəriləcək sual yoxdur.</p>`}
+          ${activeQuestions().map(q=>renderAnswer(q,x.answers,false)).join('')||`<p class="note" style="padding:20px">Bu bölmədə göstəriləcək sual yoxdur.</p>`}
           <div id="interview-warning"></div>
         </div>
         <div class="interview-foot">
           <div class="gap10">
             <button class="btn" data-action="interview-prev" ${state.interviewIndex===0?'disabled':''}>${ico('back',14)} Geri</button>
-            <button class="btn" data-action="interview-save" ${locked?'disabled':''}>${ico('save',14)} Qaralama</button>
           </div>
-          ${locked?`<button class="btn btn-primary" data-action="nav" data-page="tasks">${ico('check',14)} Baxış tamamlandı</button>`:`<button class="btn btn-primary" data-action="interview-next">${state.interviewIndex===s.sections.length-1?'Tamamla və göndər':'Növbəti bölmə'} ${ico(state.interviewIndex===s.sections.length-1?'check':'arrow',15)}</button>`}
+          <button class="btn btn-primary" data-action="interview-next">
+            ${state.interviewIndex===s.sections.length-1?'Tamamla və göndər':'Növbəti bölmə'} ${ico(state.interviewIndex===s.sections.length-1?'check':'arrow',15)}
+          </button>
         </div>
       </div>
       <div class="interview-aside">
         <div class="card person-card">
           <div class="person-head">
-            <div class="person-avatar">${esc(initials(c.fullName))}</div>
-            <div><strong>${esc(c.fullName)}</strong><small>RESPONDENT PROFİLİ</small></div>
+            <div class="person-avatar">${ico('clock',22)}</div>
+            <div>
+              <small style="color:#64748b;font-weight:750">SƏRF OLUNAN VAXT</small>
+              <div id="timer-display" style="font-size:24px;font-weight:850;color:#4f46e5;letter-spacing:1px">00:00</div>
+            </div>
           </div>
-          ${[['Telefon',c.phone],['Region',c.region||'—'],['Status',OUTCOME[a.status]],['Zəng cəhdi',String(a.attempts)],['Prioritet',a.priority==='high'?'Yüksək':'Normal']].map(([k,v])=>`<div class="info-pair"><span>${k}</span><span>${esc(v)}</span></div>`).join('')}
-          <a class="call-cta" href="tel:${esc(c.phone.replace(/[^\d+]/g,''))}">${ico('phone',16)} Telefona zəng et</a>
-          <button class="btn w100" data-action="call-result" data-id="${a.id}">${ico('clock',14)} Zəng nəticəsini qeyd et</button>
+          <div class="separator"></div>
+          <div class="field">
+            <label>Bazada olan respondent (Könüllü)</label>
+            <select id="interview-contact-select" data-action="select-interview-contact" style="font-size:12px">
+              <option value="">-- Bazadan seçin və ya aşağı yazın --</option>
+              ${surveyContacts.map(c=>`
+                <option value="${c.id}" ${x.contact?.id===c.id?'selected':''}>${esc(c.fullName)} (${esc(c.phone)})</option>
+              `).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label>Respondent adı</label>
+            <input id="interview-name-input" value="${esc(x.contact?.fullName||x.respondentName||'')}" placeholder="Ad və soyad...">
+          </div>
+          <div class="field">
+            <label>Telefon</label>
+            <input id="interview-phone-input" value="${esc(x.contact?.phone||x.respondentPhone||'')}" placeholder="+994...">
+          </div>
+          ${x.contact?.phone?`
+            <a class="call-cta" href="tel:${esc(x.contact.phone.replace(/[^\d+]/g,''))}">${ico('phone',16)} Telefona zəng et</a>
+          `:''}
         </div>
         <div class="card person-card mt20">
           <div class="aside-title">Sorğu bölmələri</div>
-          <div class="step-list">${s.sections.map((sc,i)=>`<button class="step-item ${i===state.interviewIndex?'active':i<state.interviewIndex?'done':''}" data-action="interview-step" data-index="${i}"><span>${i<state.interviewIndex?'✓':i+1}</span>${esc(sc.title)}</button>`).join('')}</div>
-          ${x.calls?.length?`<div class="separator"></div><div class="aside-title">Son zənglər</div>${x.calls.slice(0,3).map(call=>`<div class="call-history"><div class="history-date">${fmtTime(call.createdAt)}</div><div class="history-line">${outcomeBadge(call.outcome)} &nbsp; ${esc(call.notes||'')}</div></div>`).join('')}`:''}
-          <div class="question-note">${ico('info',14)} Müsahibə zamanı dəyişiklikləri “Qaralama” düyməsi ilə mütəmadi saxlayın. <br><br>Ölçülən müddət: <b id="timer-display">${formatDuration(Math.round((Date.now()-x.startTime)/1000))}</b></div>
+          <div class="step-list">
+            ${s.sections.map((sc,i)=>`
+              <button class="step-item ${i===state.interviewIndex?'active':i<state.interviewIndex?'done':''}" data-action="interview-step" data-index="${i}">
+                <span>${i<state.interviewIndex?'✓':i+1}</span>${esc(sc.title)}
+              </button>
+            `).join('')}
+          </div>
+          <div class="question-note">
+            ${ico('info',14)} Müsahibə yekunlaşdıqda vaxt dərhal hesabat reyestrinə və əməkdaşın ümumi sərf etdiyi vaxta əlavə olunur.
+          </div>
         </div>
       </div>
     </div>`;
 }
 
-function formatDuration(sec){return String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');}
-
 function successPage(){
   const x=state.interview;
+  const durSec=Math.round((Date.now()-x.startTime)/1000);
   return `
     <div class="success-state">
       <div class="confirm-illustration">${ico('check',34)}</div>
       <h2>Müsahibə tamamlandı!</h2>
-      <p><b>${esc(x.contact.fullName)}</b> üzrə cavablar uğurla qeydə alındı.<br>Məlumatlar analitika bölməsində əlçatandır.</p>
+      <p>Cavablar və sərf olunan vaxt uğurla qeydə alındı.<br>Bu müsahibəyə sərf olunan vaxt: <b class="time-spent-badge" style="font-size:14px">${ico('clock',14)} ${formatTimeSpent(durSec)}</b></p>
       <div class="gap10" style="justify-content:center;margin:28px auto 5px">
-        <button class="btn btn-primary" data-action="nav" data-page="tasks">${ico('list',15)} Tapşırıqlara qayıt</button>
-        <button class="btn" data-action="nav" data-page="dashboard">${ico('dashboard',15)} İdarə paneli</button>
+        <button class="btn btn-primary" data-action="start-survey" data-id="${x.survey.id}">
+          ${ico('plus',15)} Yeni müsahibəyə başla
+        </button>
+        <button class="btn" data-action="nav" data-page="surveys">
+          ${ico('surveys',15)} Bütün sorğular
+        </button>
+        <button class="btn" data-action="open-report" data-id="${x.survey.id}">
+          ${ico('chart',15)} Hesabata bax
+        </button>
       </div>
     </div>`;
 }
@@ -1115,7 +1289,7 @@ function updateAnswer(node){
     if(q.type==='consent')v=node.checked?'Bəli':'';
     else v=$$(`input[data-answer="${id}"]:checked`).map(x=>x.value);
   }else if(node.type==='range'||['number','currency','percentage'].includes(q.type))v=node.value===''?'':Number(node.value);
-  else if(q.type==='text_ab'||q.type==='image_ab')v={variant:variantFor(q,state.interview.assignment.id)?.label||'',answer:node.value};
+  else if(q.type==='text_ab'||q.type==='image_ab')v={variant:variantFor(q,'seed')?.label||'',answer:node.value};
   else v=node.value;
   state.interview.answers[id]=v;
   state.dirty=true;
@@ -1123,32 +1297,42 @@ function updateAnswer(node){
   if(['radio','checkbox','select-one'].includes(node.type)&&!node.dataset.row)render();
 }
 
-async function loadInterview(id){
-  const data=await request('/api/responses/assignment/'+id);
-  state.interview={...data,answers:{...(data.response?.answers||{})},startTime:Date.now(),savedDuration:data.response?.durationSec||0};
-  state.interviewIndex=0;state.interviewDone=false;state.page='interview';state.dirty=false;
-  location.hash='#/interview';render();window.scrollTo(0,0);
-}
-
-async function saveInterview(completed=false){
+async function finishInterview(){
   const x=state.interview;
-  if(!x)return;
-  if(completed){
-    let allErr='';
-    for(let i=0;i<x.survey.sections.length;i++){
-      state.interviewIndex=i;
-      allErr=checkSection();
-      if(allErr)break;
+  for(let i=0;i<x.survey.sections.length;i++){
+    state.interviewIndex=i;
+    const err=checkSection();
+    if(err){
+      render();
+      notify(err,true);
+      const warn=$('#interview-warning');
+      if(warn)warn.innerHTML=`<div class="page-error">${ico('info',14)} ${esc(err)}</div>`;
+      return;
     }
-    if(allErr){render();notify(allErr,true);return false;}
   }
-  const duration=x.savedDuration+Math.round((Date.now()-x.startTime)/1000);
-  const data=await api('/api/responses/assignment/'+x.assignment.id,{answers:x.answers,status:completed?'completed':'draft',durationSec:duration},'PUT');
-  x.response=data.response;x.assignment=data.assignment;x.savedDuration=duration;x.startTime=Date.now();
-  state.dirty=false;
-  await refresh();
-  if(completed){state.interviewDone=true;render();notify('Sorğu uğurla tamamlandı.');}else notify('Qaralama yadda saxlandı.');
-  return true;
+  const nameInput=$('#interview-name-input');
+  const phoneInput=$('#interview-phone-input');
+  const respondentName=nameInput?.value?.trim()||x.contact?.fullName||'Anonim respondent';
+  const respondentPhone=phoneInput?.value?.trim()||x.contact?.phone||'';
+  const durationSec=Math.round((Date.now()-x.startTime)/1000);
+
+  try{
+    await api('/api/surveys/'+x.survey.id+'/responses',{
+      answers: x.answers,
+      durationSec,
+      contactId: x.contact?.id||null,
+      respondentName,
+      respondentPhone,
+      status: 'completed'
+    });
+    state.dirty=false;
+    await refresh();
+    state.interviewDone=true;
+    render();
+    notify(`Sorğu tamamlandı! Sərf olunan vaxt: ${formatTimeSpent(durationSec)}.`);
+  }catch(err){
+    notify(err.message||'Müsahibə saxlanılarkən xəta baş verdi.',true);
+  }
 }
 
 // ——— PUBLIC STANDALONE SURVEY INTERFACE ———
@@ -1293,7 +1477,7 @@ function openModal(title,subtitle,body,formName=''){
   const div=document.createElement('div');
   div.className='overlay';div.id='modal-overlay';
   div.innerHTML=`
-    <div class="modal ${formName==='import'||formName==='assign'?'modal-wide':''}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+    <div class="modal ${formName==='import'?'modal-wide':''}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
       <div class="modal-head">
         <div><h2>${esc(title)}</h2><p>${esc(subtitle)}</p></div>
         <button class="modal-x" data-action="close-modal">${ico('close',18)}</button>
@@ -1314,14 +1498,25 @@ function openModal(title,subtitle,body,formName=''){
 function closeModal(){$('#modal-overlay')?.remove();}
 function formVal(form){const obj={};new FormData(form).forEach((v,k)=>obj[k]=v);return obj;}
 
-function contactModal(id){
+function contactModal(id,defaultSector=''){
   const c=state.contacts.find(c=>c.id===id)||{};
-  openModal(id?'Respondenti redaktə et':'Yeni respondent','Əlaqə məlumatlarını daxil edin.',`
+  const currentSector=c.surveyId||defaultSector||(state.selectedSector!=='all'&&state.selectedSector!=='unassigned'?state.selectedSector:'');
+  openModal(id?'Respondenti redaktə et':'Yeni respondent','Əlaqə məlumatlarını və sorğu sektorunu daxil edin.',`
     <input type="hidden" name="id" value="${esc(c.id||'')}">
     <div class="form-grid">
       <div class="field full"><label>Ad və soyad *</label><input name="fullName" required maxlength="150" value="${esc(c.fullName||'')}" placeholder="Məsələn: Leyla Məmmədova"></div>
       <div class="field"><label>Telefon *</label><input name="phone" type="tel" required value="${esc(c.phone||'')}" placeholder="+994 50 123 45 67"></div>
       <div class="field"><label>Region</label><input name="region" value="${esc(c.region||'')}" placeholder="Bakı"></div>
+      <div class="field full">
+        <label>Sorğu sektoru (Bazada ayrıca sektor)</label>
+        <select name="surveyId">
+          <option value="">Ümumi sektor (Təyinsiz)</option>
+          ${state.surveys.map(s=>`
+            <option value="${s.id}" ${currentSector===s.id?'selected':''}>${esc(s.title)} sektoru</option>
+          `).join('')}
+        </select>
+        <small>Bu respondent seçilmiş sorğunun sektorunda yerləşdiriləcək.</small>
+      </div>
       <div class="field full"><label>E-poçt</label><input name="email" type="email" value="${esc(c.email||'')}" placeholder="example@mail.az"></div>
       <div class="field full"><label>Qeyd</label><textarea name="notes">${esc(c.notes||'')}</textarea></div>
     </div>`,'contact');
@@ -1357,77 +1552,6 @@ function userModal(id){
     </div>`,'user');
 }
 
-function assignModal(){
-  const avail=state.surveys.filter(s=>s.status==='active');
-  const users=state.users.filter(u=>u.active);
-  const ids=[...state.selectedContacts];
-  openModal('Yeni zəng təyinatı','Respondentləri aktiv sorğu və operatorla əlaqələndirin.',`
-    <div class="form-grid">
-      <div class="field full">
-        <label>Sorğu *</label>
-        <select name="surveyId" required>
-          <option value="">Seçin...</option>
-          ${avail.map(s=>`<option value="${s.id}">${esc(s.title)}</option>`).join('')}
-        </select>
-      </div>
-      ${isLeader()?`
-        <div class="field full">
-          <label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <span>Məsul operatorlar *</span>
-            <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--primary);cursor:pointer">
-              <input type="checkbox" id="assign-all-operators" class="check" checked> Hamı (Bütün aktiv operatorlar)
-            </label>
-          </label>
-          <div class="operator-select-grid" id="assign-operator-list">
-            ${users.map(u=>`
-              <label class="operator-select-item">
-                <input type="checkbox" name="assign_user" class="check assign-user-check" value="${esc(u.id)}" checked>
-                <span><b>${esc(u.name)}</b> <small style="color:#64748b">(${u.role==='admin'?'Admin':u.role==='editor'?'Redaktor':'Operator'})</small></span>
-              </label>
-            `).join('')}
-          </div>
-          <small>Seçilmiş respondentlər işarələnmiş operatorlar arasında bərabər paylanacaqdır.</small>
-        </div>
-      `:''}
-      <div class="field">
-        <label>Prioritet</label>
-        <select name="priority">
-          <option value="normal">Normal</option>
-          <option value="high">Yüksək</option>
-          <option value="low">Aşağı</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Respondentlər</label>
-        <div class="pill" style="margin-top:11px">${ids.length?ids.length+' seçilmiş respondent':'Aşağıdan seçin'}</div>
-      </div>
-      <div class="field full">
-        <label>${ids.length?'Əlavə respondentlər':'Respondent seçimi *'}</label>
-        <select name="contactIds" multiple size="7" style="height:auto;padding:8px">
-          <option value="" disabled>Ctrl / Cmd ilə bir neçə seçin</option>
-          ${state.contacts.map(c=>`<option value="${c.id}" ${ids.includes(c.id)?'selected':''}>${esc(c.fullName)} · ${esc(c.phone)}</option>`).join('')}
-        </select>
-        <small>Respondent bazası səhifəsində toplu seçim də edə bilərsiniz.</small>
-      </div>
-    </div>`,'assign');
-}
-
-function resultModal(id){
-  const a=state.assignments.find(a=>a.id===id);
-  if(!a)return;
-  openModal('Zəng nəticəsini qeyd et',`${a.contact?.fullName||''} · ${a.contact?.phone||''}`,`
-    <input type="hidden" name="id" value="${esc(a.id)}">
-    <div class="field">
-      <label>Danışığın nəticəsi *</label>
-      <select name="outcome" required>
-        ${['pending','in_progress','callback','no_answer','busy','refused'].map(v=>`<option value="${v}" ${a.status===v?'selected':''}>${OUTCOME[v]}</option>`).join('')}
-      </select>
-      <small>“Tamamlandı” nəticəsi sorğu forması göndərildikdə avtomatik qeydə alınır.</small>
-    </div>
-    <div class="field"><label>Təkrar zəng vaxtı (lazımdırsa)</label><input type="datetime-local" name="callbackAt" value="${datetimeLocal(a.callbackAt)}"></div>
-    <div class="field"><label>Operator qeydi</label><textarea name="notes" placeholder="Zəng haqqında qeyd...">${esc(a.notes||'')}</textarea></div>`,'result');
-}
-
 function surveySettings(){
   const s=state.builder;
   openModal('Sorğu parametrləri','Əsas məlumatlar və yayımlanma vəziyyəti.',`
@@ -1461,10 +1585,20 @@ function sectionModal(id){
     <div class="field"><label>İzah</label><textarea name="description">${esc(sec.description||'')}</textarea></div>`,'section');
 }
 
-function importModal(){
+function importModal(defaultSector=''){
   if(!isLeader())return notify('CSV idxalı üçün admin və ya redaktor icazəsi tələb olunur.',true);
+  const targetSector=defaultSector||(state.selectedSector!=='all'&&state.selectedSector!=='unassigned'?state.selectedSector:'');
   openModal('Respondentlərin CSV idxalı','CSV faylında başlıqlar: fullName, phone, region, email, notes',`
     <div class="hint" style="margin-bottom:17px">İlk sətirdə sütun adları olmalıdır. <b>fullName</b> (və ya ad), <b>phone</b> (və ya telefon) mütləqdir. Ayırıcı kimi <b>,</b> və ya <b>;</b> dəstəklənir.</div>
+    <div class="field">
+      <label>Sorğu sektoru (İdxal ediləcək sektor)</label>
+      <select name="surveyId" id="import-survey-id">
+        <option value="">Ümumi sektor (Təyinsiz)</option>
+        ${state.surveys.map(s=>`
+          <option value="${s.id}" ${targetSector===s.id?'selected':''}>${esc(s.title)} sektoru</option>
+        `).join('')}
+      </select>
+    </div>
     <div class="field"><label>CSV faylını seçin</label><input type="file" accept=".csv,text/csv" id="import-file" required style="padding:11px"></div>
     <div class="field"><label>Önizləmə</label><div id="import-preview" class="hint">Fayl seçilməyib.</div></div>`,'import');
 }
@@ -1493,13 +1627,18 @@ function responseDetails(id){
   const r=state.report?.responses?.find(x=>x.id===id);
   if(!r)return;
   const survey=state.surveys.find(s=>s.id===state.report.survey.id);
-  openModal('Müsahibə cavabları',`${r.contact} · ${fmtTime(r.submittedAt)}`,
-    `<div style="max-height:55vh;overflow:auto">${survey.questions.map((q,i)=>`
-      <div class="info-pair" style="display:block">
-        <b style="display:block;margin-bottom:9px">${i+1}. ${esc(q.title)}</b>
-        <span>${esc(typeof r.answers[q.id]==='object'?JSON.stringify(r.answers[q.id]):r.answers[q.id]??'—')}</span>
+  openModal('Müsahibə cavabları və vaxtı',`${r.contact} · ${fmtTime(r.submittedAt)} · Sərf olunan vaxt: ${formatTimeSpent(r.durationSec)}`,
+    `<div style="max-height:55vh;overflow:auto">
+      <div class="highlight-box" style="margin-bottom:14px">
+        Əməkdaş: <b>${esc(r.agent)}</b> &nbsp;|&nbsp; Müddət: <b>${formatTimeSpent(r.durationSec)}</b>
       </div>
-    `).join('')}</div>`,'read-only');
+      ${survey.questions.map((q,i)=>`
+        <div class="info-pair" style="display:block">
+          <b style="display:block;margin-bottom:9px">${i+1}. ${esc(q.title)}</b>
+          <span>${esc(typeof r.answers[q.id]==='object'?JSON.stringify(r.answers[q.id]):r.answers[q.id]??'—')}</span>
+        </div>
+      `).join('')}
+    </div>`,'read-only');
   $('.modal-foot')?.remove();
 }
 
@@ -1556,6 +1695,9 @@ async function dispatchAction(el){
       case'close-mobile':state.mobile=false;render();break;
       case'logout':await api('/api/logout',{});state.user=null;state.report=null;state.builder=null;location.hash='';renderLogin();notify('Hesabdan çıxış edildi.');break;
       case'refresh':await refresh();render();notify('Məlumatlar yeniləndi.');break;
+      case'select-sector':state.selectedSector=el.dataset.sector||'all';render();break;
+      case'start-survey':startDirectInterview(id);break;
+      case'start-survey-with-contact':startDirectInterview(el.dataset.surveyId,el.dataset.contactId);break;
       case'new-survey':{
         const s={title:'Yeni sorğu',description:'',category:'Ümumi',status:'draft',access:'public',estimatedMinutes:5,sections:[{id:mkId(),title:'Bölmə 1',description:''}],questions:[]};
         const r=await api('/api/surveys',s);await refresh();makeBuilder(r.survey);notify('Yeni sorğu yaradıldı.');break;
@@ -1569,26 +1711,18 @@ async function dispatchAction(el){
         else{const ta=document.createElement('textarea');ta.value=link;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();}
         notify('İctimai sorğu linki kopyalandı.');break;
       }
-      case'new-contact':contactModal();break;
+      case'new-contact':contactModal(null,el.dataset.sector);break;
       case'edit-contact':contactModal(id);break;
-      case'import-contacts':importModal();break;
-      case'assign-selected':assignModal();break;
-      case'start-interview':await loadInterview(id);break;
-      case'call-result':resultModal(id||state.interview?.assignment.id);break;
+      case'import-contacts':importModal(el.dataset.sector);break;
       case'new-user':userModal();break;
       case'edit-user':userModal(id);break;
       case'change-password':passwordModal();break;
-      case'open-report':state.report=await request('/api/reports/'+id);state.reportSurveyId=id;state.reportTab='summary';render();break;
+      case'open-report':state.report=await request('/api/reports/'+id);state.reportSurveyId=id;state.reportTab='responses';render();break;
       case'close-report':state.report=null;render();break;
       case'report-tab':state.reportTab=el.dataset.tab;render();break;
       case'response-details':responseDetails(id);break;
-      case'export-report':window.location.href='/api/export/'+id;notify('CSV ixracı başlanıldı.');break;
+      case'export-report':window.location.href='/api/export/'+id;notify('Excel/CSV ixracı başlanıldı.');break;
       case'close-modal':closeModal();break;
-      case'select-all-contacts':{
-        const selected=el.checked;
-        filtered(state.contacts,c=>c.fullName+' '+c.phone+' '+c.email+' '+c.region).forEach(c=>selected?state.selectedContacts.add(c.id):state.selectedContacts.delete(c.id));
-        render();break;
-      }
       case'save-builder':{const r=await api('/api/surveys/'+state.builder.id,state.builder,'PUT');state.builder=r.survey;state.dirty=false;await refresh();render();notify('Sorğu yadda saxlanıldı.');break;}
       case'add-question':{const s=state.builder;const q=newQuestion(el.dataset.type,el.dataset.section||state.builderSection||s.sections[0].id);s.questions.push(q);state.builderQ=q.id;state.builderSection=q.sectionId;state.preview=false;state.propOpen=true;state.dirty=true;render();break;}
       case'select-question':state.builderQ=id;state.builderSection=findBuilderQ(id)?.sectionId;state.preview=false;state.propOpen=true;render();break;
@@ -1614,13 +1748,12 @@ async function dispatchAction(el){
       }
       case'interview-prev':if(state.interviewIndex>0){state.interviewIndex--;render();}break;
       case'interview-step':state.interviewIndex=Number(el.dataset.index);render();break;
-      case'interview-save':await saveInterview(false);break;
       case'interview-next':{
         const err=checkSection();
         if(err){notify(err,true);const warning=$('#interview-warning');if(warning)warning.innerHTML=`<div class="page-error">${ico('info',14)} ${esc(err)}</div>`;break;}
         if(state.interviewIndex===state.interview.survey.sections.length-1){
-          if(confirm('Sorğunu yekunlaşdırmaq istəyirsiniz? Tamamlanan cavab redaktə edilə bilməz.'))await saveInterview(true);
-        }else {await saveInterview(false);state.interviewIndex++;render();window.scrollTo(0,0);}
+          if(confirm('Sorğunu yekunlaşdırmaq istəyirsiniz? Sərf olunan vaxt hesabatda qeydə alınacaq.'))await finishInterview();
+        }else {state.interviewIndex++;render();window.scrollTo(0,0);}
         break;
       }
       case'public-survey-prev':if(state.publicSurveyIndex>0){state.publicSurveyIndex--;renderPublicSurvey();window.scrollTo(0,0);}break;
@@ -1654,27 +1787,6 @@ async function handleForm(form){
       await api(values.id?'/api/users/'+values.id:'/api/users',data,values.id?'PUT':'POST');
       notify('Əməkdaş hesabı saxlanıldı.');
     }
-    else if(kind==='assign'){
-      const select=form.querySelector('[name="contactIds"]');
-      const ids=[...new Set([...state.selectedContacts,...[...select.selectedOptions].map(x=>x.value).filter(Boolean)])];
-      if(!ids.length)throw Error('Ən azı bir respondent seçilməlidir.');
-      let assignedTo=[];
-      if(isLeader()){
-        assignedTo=$$('input[name="assign_user"]:checked',form).map(cb=>cb.value);
-        if(!assignedTo.length)throw Error('Ən azı bir məsul operator seçilməlidir.');
-      } else {
-        assignedTo=[state.user.id];
-      }
-      const r=await api('/api/assignments',{surveyId:values.surveyId,assignedTo,priority:values.priority,contactIds:ids});
-      state.selectedContacts.clear();
-      notify(`${r.count} yeni tapşırıq yaradıldı.`);
-    }
-    else if(kind==='result'){
-      const d={outcome:values.outcome,callbackAt:values.callbackAt?new Date(values.callbackAt).toISOString():null,notes:values.notes,durationSec:state.interview?Math.round((Date.now()-state.interview.startTime)/1000):0};
-      const r=await api('/api/assignments/'+values.id+'/calls',d);
-      if(state.interview?.assignment.id===values.id)state.interview.assignment=r.assignment;
-      notify('Zəng nəticəsi qeyd edildi.');
-    }
     else if(kind==='survey-settings'){
       Object.assign(state.builder,{title:values.title,description:values.description,category:values.category,status:values.status,access:values.access==='private'?'private':'public',estimatedMinutes:Number(values.estimatedMinutes),accent:values.accent});
       state.dirty=true;
@@ -1703,8 +1815,9 @@ async function handleForm(form){
       const text=await file.text();
       const records=csvContacts(text);
       if(!records.length)throw Error('CSV-də fullName və phone sütunları üzrə məlumat tapılmadı.');
-      const r=await api('/api/contacts/bulk',{contacts:records});
-      notify(`${r.count} respondent idxal edildi.`);
+      const surveyId=$('#import-survey-id')?.value||'';
+      const r=await api('/api/contacts/bulk',{contacts:records,surveyId});
+      notify(`${r.count} respondent sektora idxal edildi.`);
     }
     else return;
     closeModal();
@@ -1767,17 +1880,19 @@ document.addEventListener('input',e=>{
 
 document.addEventListener('change',async e=>{
   const el=e.target;
-  if(el.id==='assign-all-operators'){
-    const form=el.closest('form');
-    if(form)$$('.assign-user-check',form).forEach(cb=>{cb.checked=el.checked;});
-    return;
-  }
-  if(el.classList.contains('assign-user-check')){
-    const form=el.closest('form');
-    if(form){
-      const all=$$('.assign-user-check',form);
-      const allCb=$('#assign-all-operators',form);
-      if(allCb)allCb.checked=all.length>0&&all.every(cb=>cb.checked);
+  if(el.id==='interview-contact-select'){
+    const cId=el.value;
+    const contact=state.contacts.find(c=>c.id===cId);
+    if(contact){
+      if(state.interview){
+        state.interview.contact=contact;
+        state.interview.respondentName=contact.fullName;
+        state.interview.respondentPhone=contact.phone;
+      }
+      const nameInput=$('#interview-name-input');
+      const phoneInput=$('#interview-phone-input');
+      if(nameInput)nameInput.value=contact.fullName;
+      if(phoneInput)phoneInput.value=contact.phone;
     }
     return;
   }
@@ -1807,10 +1922,6 @@ document.addEventListener('change',async e=>{
     }catch(err){notify(err.message,true);}
     return;
   }
-  if(el.classList.contains('contact-check')){
-    el.checked?state.selectedContacts.add(el.dataset.id):state.selectedContacts.delete(el.dataset.id);
-    render();return;
-  }
   if(el.id==='import-file'){
     const file=el.files?.[0];
     if(file){
@@ -1826,8 +1937,9 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
 
 setInterval(()=>{
   if(state.page==='interview'&&state.interview){
-    const sec=state.interview.savedDuration+Math.round((Date.now()-state.interview.startTime)/1000);
-    if($('#timer-display'))$('#timer-display').textContent=formatDuration(sec);
+    const sec=Math.round((Date.now()-state.interview.startTime)/1000);
+    const el=$('#timer-display');
+    if(el)el.textContent=formatDurationClock(sec);
   }
 },1000);
 

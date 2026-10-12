@@ -241,3 +241,96 @@
   gap: 15px;
 }
 
+/* SEKTOR TABS (Baza sektorları) */
+.sector-tabs-wrap {
+  display: flex;
+  gap: 9px;
+  overflow-x: auto;
+  padding: 4px 2px 14px;
+  margin-bottom: 18px;
+  scrollbar-width: thin;
+}
+.sector-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: all .16s ease;
+  cursor: pointer;
+}
+.sector-tab:hover {
+  border-color: #6656e9;
+  background: #faf9ff;
+  color: #4f46e5;
+  transform: translateY(-1px);
+}
+.sector-tab.active {
+  background: #6656e9;
+  color: #ffffff;
+  border-color: #6656e9;
+  box-shadow: 0 4px 14px rgba(102, 86, 233, 0.32);
+}
+.sector-tab-count {
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 800;
+  background: #f1f5f9;
+  color: #475569;
+}
+.sector-tab.active .sector-tab-count {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+/* SƏRF OLUNAN VAXT (TIME SPENT) BADGES */
+.time-spent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 9px;
+  background: #eef2ff;
+  color: #4338ca;
+  border: 1px solid #c7d2fe;
+  font-weight: 750;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.time-total-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+  font-weight: 800;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.operator-summary-card {
+  margin-top: 24px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #ffffff;
+}
+.operator-summary-head {
+  padding: 18px 24px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+

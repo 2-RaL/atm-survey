@@ -7,6 +7,17 @@ const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
 const project = path.resolve(__dirname, '..');
+
+function copyDir(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) copyDir(srcPath, destPath);
+    else fs.copyFileSync(srcPath, destPath);
+  }
+}
+
 async function freePort() {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
@@ -42,14 +53,16 @@ async function login(base, username, password) {
 test('Hostinger: new deployments share stable, nonpublic data directory and production has no demo accounts', async t => {
   const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'sorgupro-hostinger-'));
   const site = path.join(sandbox, 'domains', 'example.az');
-  t.after(() => fs.rmSync(sandbox, { recursive: true, force: true }));
+  t.after(() => {
+    try { fs.rmSync(sandbox, { recursive: true, force: true }); } catch { }
+  });
   let previous = null;
   for (const version of ['version-A', 'version-B']) {
     const build = path.join(site, 'hbuilds', 'versions', version, 'nodejs');
     fs.mkdirSync(build, { recursive: true });
-    fs.cpSync(path.join(project, 'server'), path.join(build, 'server'), { recursive: true });
+    copyDir(path.join(project, 'server'), path.join(build, 'server'));
     fs.copyFileSync(path.join(project, 'app.js'), path.join(build, 'app.js'));
-    fs.cpSync(path.join(project, 'public'), path.join(build, 'public'), { recursive: true });
+    copyDir(path.join(project, 'public'), path.join(build, 'public'));
     const running = await launch(build);
     t.after(() => running.stop());
     const prodData = path.join(site, 'sorgupro-private-data', 'db.json');

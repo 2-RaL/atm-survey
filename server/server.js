@@ -60,9 +60,169 @@ if(q.type==='ranking'&&q.required){const ranks=q.options.map(o=>v?.[o.label]);if
 if(q.type==='bestworst'&&q.required&&(!v?.best||!v?.worst||v.best===v.worst))return q.title+' — ən yaxşı və ən pis fərqli seçilməlidir.';}return null;}
 function answerSanitize(answers,survey){if(!answers||typeof answers!=='object'||Array.isArray(answers))return {};const out={};for(const q of survey.questions){const a=answers[q.id];if(a===undefined||a===null)continue;if(typeof a==='string')out[q.id]=a.slice(0,6000);else if(typeof a==='number'&&Number.isFinite(a))out[q.id]=a;else if(Array.isArray(a))out[q.id]=a.slice(0,100).map(x=>cleanText(x,500));else if(typeof a==='object')out[q.id]=Object.fromEntries(Object.entries(a).slice(0,100).map(([k,v])=>[cleanText(k,180),cleanText(v,800)]));else if(typeof a==='boolean')out[q.id]=a;}return out;}
 function csvVal(v){const txt=Array.isArray(v)?v.join(' | '):typeof v==='object'&&v?Object.entries(v).map(([k,val])=>k+': '+val).join(' | '):String(v??'');const safe=/^[\x00-\x20]*[=+\-@]/.test(txt)?"'"+txt:txt;return '"'+safe.replace(/"/g,'""')+'"';}
-function sumSurvey(s,user){const a=filteredAssignments(user).filter(x=>x.surveyId===s.id);return {...s,questionsCount:s.questions.length,assignmentsCount:a.length,responsesCount:filteredResponses(user).filter(r=>r.surveyId===s.id&&r.status==='completed').length};}
-function dashboard(user){const tasks=filteredAssignments(user),resp=filteredResponses(user);const done=tasks.filter(a=>a.status==='completed').length;const calls=get().callLogs.filter(l=>canManage(user)||l.agentId===user.id);const recent=tasks.slice().sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).slice(0,7).map(a=>({...a,contact:get().contacts.find(c=>c.id===a.contactId)||null,survey:get().surveys.find(s=>s.id===a.surveyId)?.title,agent:get().users.find(u=>u.id===a.assignedTo)?.name}));const days=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);const date=d.toISOString().slice(0,10);return {date,completed:resp.filter(r=>r.status==='completed'&&r.submittedAt?.slice(0,10)===date).length,calls:calls.filter(l=>l.createdAt?.slice(0,10)===date).length};});return {stats:{activeSurveys:get().surveys.filter(s=>s.status==='active').length,totalAssignments:tasks.length,completed:done,completionRate:tasks.length?Math.round(done/tasks.length*100):0,totalCalls:calls.length,callbacks:tasks.filter(a=>a.status==='callback').length,pending:tasks.filter(a=>a.status==='pending').length,respondents:get().contacts.length},recent,days,byStatus:Object.fromEntries(['pending','in_progress','callback','no_answer','busy','refused','completed'].map(s=>[s,tasks.filter(a=>a.status===s).length]))};}
-function report(survey,user){const responses=filteredResponses(user).filter(r=>r.surveyId===survey.id&&r.status==='completed');const assigns=filteredAssignments(user).filter(a=>a.surveyId===survey.id);const stats=survey.questions.map(q=>{const vals=responses.map(r=>r.answers[q.id]).filter(x=>x!==undefined&&x!==null&&x!=='');const counts={};const numeric=[];vals.forEach(v=>{if(['text_ab','image_ab'].includes(q.type)&&v&&typeof v==='object'){const key=String(v.variant||'?')+' → '+String(v.answer||'?');counts[key]=(counts[key]||0)+1;return;}if(typeof v==='number')numeric.push(v);if(typeof v==='string'){counts[v]=(counts[v]||0)+1;}else if(Array.isArray(v))v.forEach(x=>{counts[x]=(counts[x]||0)+1;});else if(v&&typeof v==='object')Object.values(v).forEach(x=>{counts[x]=(counts[x]||0)+1;});});return {questionId:q.id,title:q.title,type:q.type,answered:vals.length,counts:Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,20),average:numeric.length?Math.round(numeric.reduce((a,b)=>a+b,0)/numeric.length*10)/10:null,samples:['paragraph','short_text','name','address'].includes(q.type)?vals.filter(x=>typeof x==='string').slice(-5):[]};});return {survey:{id:survey.id,title:survey.title,status:survey.status,access:survey.access||'public'},totalAssigned:assigns.length,completed:responses.length,pending:assigns.filter(a=>a.status!=='completed').length,averageDuration:responses.length?Math.round(responses.reduce((sum,r)=>sum+(r.durationSec||0),0)/responses.length):0,questions:stats,responses:responses.map(r=>({id:r.id,agent:r.isPublic?'İctimai respondent':get().users.find(u=>u.id===r.agentId)?.name,contact:r.isPublic?('İctimai ('+(r.ip||'link')+')'):get().contacts.find(c=>c.id===r.contactId)?.fullName,isPublic:!!r.isPublic,ip:r.ip||'',submittedAt:r.submittedAt,durationSec:r.durationSec,answers:r.answers}))};}
+function formatDuration(sec){
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const rem = s % 60;
+  const parts = [];
+  if (h > 0) parts.push(h + ' saat');
+  if (m > 0) parts.push(m + ' dəq');
+  if (rem > 0 || !parts.length) parts.push(rem + ' san');
+  return parts.join(' ');
+}
+function sumSurvey(s,user){
+  const cCount = get().contacts.filter(c => c.surveyId === s.id).length;
+  const rList = filteredResponses(user).filter(r => r.surveyId === s.id && r.status === 'completed');
+  const totalDuration = rList.reduce((sum, r) => sum + (Number(r.durationSec) || 0), 0);
+  return {
+    ...s,
+    questionsCount: s.questions.length,
+    contactsCount: cCount,
+    responsesCount: rList.length,
+    totalDurationSec: totalDuration,
+    assignmentsCount: rList.length
+  };
+}
+function dashboard(user){
+  const resp = filteredResponses(user).filter(r => r.status === 'completed');
+  const contacts = get().contacts;
+  const totalSec = resp.reduce((sum, r) => sum + (Number(r.durationSec) || 0), 0);
+  const recent = resp.slice().sort((a,b) => (b.submittedAt||'').localeCompare(a.submittedAt||'')).slice(0, 8).map(r => ({
+    id: r.id,
+    surveyId: r.surveyId,
+    survey: get().surveys.find(s => s.id === r.surveyId)?.title || 'Sorğu',
+    contact: r.isPublic ? ('İctimai ('+(r.ip||'link')+')') : (get().contacts.find(c => c.id === r.contactId)?.fullName || r.contactName || 'Anonim respondent'),
+    phone: get().contacts.find(c => c.id === r.contactId)?.phone || r.contactPhone || '—',
+    agent: r.isPublic ? 'İctimai link' : (get().users.find(u => u.id === r.agentId)?.name || 'Anonim'),
+    durationSec: r.durationSec || 0,
+    submittedAt: r.submittedAt
+  }));
+  const days = Array.from({length: 7}, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - 6 + i);
+    const date = d.toISOString().slice(0, 10);
+    const dayResp = resp.filter(r => r.submittedAt?.slice(0, 10) === date);
+    return {
+      date,
+      completed: dayResp.length,
+      durationSec: dayResp.reduce((s, r) => s + (Number(r.durationSec) || 0), 0)
+    };
+  });
+  return {
+    stats: {
+      activeSurveys: get().surveys.filter(s => s.status === 'active').length,
+      completed: resp.length,
+      totalDurationSec: totalSec,
+      averageDurationSec: resp.length ? Math.round(totalSec / resp.length) : 0,
+      respondents: contacts.length
+    },
+    recent,
+    days
+  };
+}
+function report(survey,user){
+  const responses = filteredResponses(user).filter(r => r.surveyId === survey.id && r.status === 'completed');
+  const totalDurationAll = responses.reduce((sum, r) => sum + (Number(r.durationSec) || 0), 0);
+  const avgDuration = responses.length ? Math.round(totalDurationAll / responses.length) : 0;
+
+  // Calculate per-operator stats
+  const userMap = new Map();
+  responses.forEach(r => {
+    const key = r.isPublic ? 'public' : (r.agentId || 'anon');
+    const uObj = get().users.find(u => u.id === r.agentId);
+    const name = r.isPublic ? 'İctimai respondentlər (Link)' : (uObj?.name || 'Digər əməkdaş');
+    const role = r.isPublic ? 'public' : (uObj?.role || 'agent');
+    const username = r.isPublic ? 'link' : (uObj?.username || '');
+    if (!userMap.has(key)) {
+      userMap.set(key, {
+        userId: key,
+        name,
+        username,
+        role,
+        count: 0,
+        totalDurationSec: 0,
+        minDurationSec: Infinity,
+        maxDurationSec: 0
+      });
+    }
+    const item = userMap.get(key);
+    item.count++;
+    const dur = Number(r.durationSec) || 0;
+    item.totalDurationSec += dur;
+    if (dur < item.minDurationSec) item.minDurationSec = dur;
+    if (dur > item.maxDurationSec) item.maxDurationSec = dur;
+  });
+
+  const userStats = Array.from(userMap.values()).map(u => {
+    const avgSec = u.count ? Math.round(u.totalDurationSec / u.count) : 0;
+    return {
+      ...u,
+      minDurationSec: u.minDurationSec === Infinity ? 0 : u.minDurationSec,
+      avgDurationSec: avgSec,
+      totalDurationFormatted: formatDuration(u.totalDurationSec),
+      avgDurationFormatted: formatDuration(avgSec),
+      percentage: totalDurationAll ? Math.round((u.totalDurationSec / totalDurationAll) * 100) : 0
+    };
+  }).sort((a,b) => b.totalDurationSec - a.totalDurationSec);
+
+  const stats = survey.questions.map(q => {
+    const vals = responses.map(r => r.answers[q.id]).filter(x => x !== undefined && x !== null && x !== '');
+    const counts = {};
+    const numeric = [];
+    vals.forEach(v => {
+      if (['text_ab','image_ab'].includes(q.type) && v && typeof v === 'object') {
+        const key = String(v.variant || '?') + ' → ' + String(v.answer || '?');
+        counts[key] = (counts[key] || 0) + 1;
+        return;
+      }
+      if (typeof v === 'number') numeric.push(v);
+      if (typeof v === 'string') {
+        counts[v] = (counts[v] || 0) + 1;
+      } else if (Array.isArray(v)) {
+        v.forEach(x => { counts[x] = (counts[x] || 0) + 1; });
+      } else if (v && typeof v === 'object') {
+        Object.values(v).forEach(x => { counts[x] = (counts[x] || 0) + 1; });
+      }
+    });
+    return {
+      questionId: q.id,
+      title: q.title,
+      type: q.type,
+      answered: vals.length,
+      counts: Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 20),
+      average: numeric.length ? Math.round(numeric.reduce((a,b) => a + b, 0) / numeric.length * 10) / 10 : null,
+      samples: ['paragraph','short_text','name','address'].includes(q.type) ? vals.filter(x => typeof x === 'string').slice(-5) : []
+    };
+  });
+
+  const formattedResponses = responses.map(r => {
+    const contactObj = get().contacts.find(c => c.id === r.contactId);
+    const agentObj = get().users.find(u => u.id === r.agentId);
+    return {
+      id: r.id,
+      contact: r.isPublic ? ('İctimai ('+(r.ip||'link')+')') : (contactObj?.fullName || r.contactName || 'Anonim respondent'),
+      phone: contactObj?.phone || r.contactPhone || '—',
+      agent: r.isPublic ? 'İctimai link' : (agentObj?.name || 'Anonim'),
+      agentUsername: agentObj?.username || '',
+      isPublic: !!r.isPublic,
+      ip: r.ip || '',
+      submittedAt: r.submittedAt,
+      durationSec: Number(r.durationSec) || 0,
+      durationFormatted: formatDuration(Number(r.durationSec) || 0),
+      answers: r.answers
+    };
+  });
+
+  return {
+    survey: { id: survey.id, title: survey.title, status: survey.status, access: survey.access || 'public' },
+    completed: responses.length,
+    totalDurationAll,
+    averageDuration: avgDuration,
+    userStats,
+    questions: stats,
+    responses: formattedResponses
+  };
+}
 async function readBody(req){let size=0,chunks=[];for await(const chunk of req){size+=chunk.length;if(size>8*1024*1024)throw Object.assign(new Error('Sorğunun həcmi çox böyükdür.'),{status:413});chunks.push(chunk);}const raw=Buffer.concat(chunks).toString('utf8');if(!raw)return {};try{return JSON.parse(raw);}catch{throw Object.assign(new Error('JSON formatı yanlışdır.'),{status:400});}}
 const statusSet=['pending','in_progress','callback','no_answer','busy','refused','completed'];
 async function api(req,res,url){const p=url.pathname, method=req.method, db=get();
@@ -110,10 +270,33 @@ if(p==='/api/login'&&method==='POST'){
  let m=p.match(/^\/api\/surveys\/([\w-]+)$/);
  if(m){const s=db.surveys.find(x=>x.id===m[1]);if(!s)return error(res,404,'Sorğu tapılmadı.');if(method==='GET')return canManage(user)||s.status==='active'?respond(res,200,{survey:surveySafe(s)}):error(res,403,'İcazə yoxdur.');if(method==='PUT'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');const data=await readBody(req);const updated=validateSurvey(data,{id:s.id,createdBy:s.createdBy,createdAt:s.createdAt});Object.assign(s,updated);log(req,user,'Sorğunu redaktə etdi',s.title);save();return respond(res,200,{survey:s});}if(method==='DELETE'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');s.status='archived';s.updatedAt=iso();log(req,user,'Sorğunu arxivlədi',s.title);save();return respond(res,200,{ok:true});}}
  m=p.match(/^\/api\/surveys\/([\w-]+)\/duplicate$/);if(m&&method==='POST'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');const s=db.surveys.find(x=>x.id===m[1]);if(!s)return error(res,404,'Sorğu tapılmadı.');const copy=structuredClone(s);copy.id=uid();copy.title+=' (surət)';copy.status='draft';copy.createdAt=copy.updatedAt=iso();copy.createdBy=user.id;db.surveys.unshift(copy);log(req,user,'Sorğunun surətini yaratdı',copy.title);save();return respond(res,201,{survey:copy});}
- if(p==='/api/contacts'&&method==='GET'){const visible=canManage(user)?db.contacts:db.contacts.filter(c=>db.assignments.some(a=>a.contactId===c.id&&a.assignedTo===user.id)||c.createdBy===user.id);return respond(res,200,{contacts:visible});}
- if(p==='/api/contacts'&&method==='POST'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');const d=await readBody(req);if(!cleanText(d.fullName,150)||!cleanText(d.phone,50))return error(res,400,'Ad və telefon nömrəsi mütləqdir.');const c={id:uid(),fullName:cleanText(d.fullName,150),phone:cleanText(d.phone,50),email:cleanText(d.email,200),region:cleanText(d.region,120),notes:cleanText(d.notes,2000),createdBy:user.id,createdAt:iso()};db.contacts.unshift(c);log(req,user,'Yeni respondent əlavə etdi',c.fullName);save();return respond(res,201,{contact:c});}
- if(p==='/api/contacts/bulk'&&method==='POST'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');const d=await readBody(req);const input=asArray(d.contacts).slice(0,2000);let count=0;for(const x of input){if(!cleanText(x.fullName,150)||!cleanText(x.phone,50))continue;db.contacts.push({id:uid(),fullName:cleanText(x.fullName,150),phone:cleanText(x.phone,50),email:cleanText(x.email,200),region:cleanText(x.region,120),notes:cleanText(x.notes,2000),createdBy:user.id,createdAt:iso()});count++;}log(req,user,'Toplu CSV respondent idxal etdi',count+' nəfər');save();return respond(res,200,{count});}
- m=p.match(/^\/api\/contacts\/([\w-]+)$/);if(m&&method==='PUT'){const c=db.contacts.find(x=>x.id===m[1]);if(!c)return error(res,404,'Kontakt tapılmadı.');if(!canManage(user)&&c.createdBy!==user.id)return error(res,403,'İcazə yoxdur.');const d=await readBody(req);for(const key of ['fullName','phone','email','region','notes'])if(key in d)c[key]=cleanText(d[key],key==='notes'?2000:200);log(req,user,'Respondent məlumatını yenilədi',c.fullName);save();return respond(res,200,{contact:c});}
+ let mDirect=p.match(/^\/api\/surveys\/([\w-]+)\/responses$/);
+ if(mDirect&&method==='POST'){
+   const s=db.surveys.find(x=>x.id===mDirect[1]);if(!s)return error(res,404,'Sorğu tapılmadı.');
+   if(s.status!=='active')return error(res,400,'Bu sorğu aktiv deyil.');
+   const d=await readBody(req);
+   const answers=answerSanitize(d.answers,s);
+   for(const q of s.questions)if(!visible(q,answers))delete answers[q.id];
+   if(d.status==='completed'){
+     const err=validateAnswers(s,answers);
+     if(err)return error(res,400,err);
+   }
+   const now=iso(),ip=getIp(req);
+   let contact=null;
+   if(d.contactId) contact=db.contacts.find(c=>c.id===d.contactId);
+   const contactName=cleanText(contact?.fullName||d.respondentName||'Anonim respondent',150);
+   const contactPhone=cleanText(contact?.phone||d.respondentPhone||'',50);
+   const durationSec=Math.max(0,Math.min(86400,Number(d.durationSec)||0));
+   const r={id:uid(),surveyId:s.id,assignmentId:null,contactId:contact?.id||null,contactName,contactPhone,agentId:user.id,isPublic:false,ip,answers,status:d.status==='draft'?'draft':'completed',durationSec,durationFormatted:formatDuration(durationSec),operatorName:user.username,notes:cleanText(d.notes,2000),startedAt:d.startedAt||now,updatedAt:now,submittedAt:d.status==='draft'?null:now};
+   db.responses.unshift(r);
+   log(req,user,'Müsahibəni tamamladı',s.title,'Respondent: '+contactName+' · Müddət: '+formatDuration(durationSec));
+   save();
+   return respond(res,201,{ok:true,response:r});
+ }
+ if(p==='/api/contacts'&&method==='GET'){const sId=url.searchParams.get('surveyId');const list=sId?db.contacts.filter(c=>c.surveyId===sId):db.contacts;return respond(res,200,{contacts:list});}
+ if(p==='/api/contacts'&&method==='POST'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');const d=await readBody(req);if(!cleanText(d.fullName,150)||!cleanText(d.phone,50))return error(res,400,'Ad və telefon nömrəsi mütləqdir.');const c={id:uid(),fullName:cleanText(d.fullName,150),phone:cleanText(d.phone,50),email:cleanText(d.email,200),region:cleanText(d.region,120),notes:cleanText(d.notes,2000),surveyId:cleanText(d.surveyId,100)||null,createdBy:user.id,createdAt:iso()};db.contacts.unshift(c);log(req,user,'Yeni respondent əlavə etdi',c.fullName,'Sektor: '+(c.surveyId||'Ümumi'));save();return respond(res,201,{contact:c});}
+ if(p==='/api/contacts/bulk'&&method==='POST'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');const d=await readBody(req);const input=asArray(d.contacts).slice(0,2000);const sectorId=cleanText(d.surveyId,100)||null;let count=0;for(const x of input){if(!cleanText(x.fullName,150)||!cleanText(x.phone,50))continue;db.contacts.push({id:uid(),fullName:cleanText(x.fullName,150),phone:cleanText(x.phone,50),email:cleanText(x.email,200),region:cleanText(x.region,120),notes:cleanText(x.notes,2000),surveyId:sectorId||cleanText(x.surveyId,100)||null,createdBy:user.id,createdAt:iso()});count++;}log(req,user,'Toplu CSV respondent idxal etdi',count+' nəfər','Sektor: '+(sectorId||'Qarışıq'));save();return respond(res,200,{count});}
+ m=p.match(/^\/api\/contacts\/([\w-]+)$/);if(m&&method==='PUT'){const c=db.contacts.find(x=>x.id===m[1]);if(!c)return error(res,404,'Kontakt tapılmadı.');if(!canManage(user)&&c.createdBy!==user.id)return error(res,403,'İcazə yoxdur.');const d=await readBody(req);for(const key of ['fullName','phone','email','region','notes'])if(key in d)c[key]=cleanText(d[key],key==='notes'?2000:200);if('surveyId'in d)c.surveyId=cleanText(d.surveyId,100)||null;log(req,user,'Respondent məlumatını yenilədi',c.fullName);save();return respond(res,200,{contact:c});}
  if(p==='/api/assignments'&&method==='GET'){const visible=filteredAssignments(user).map(a=>({...a,contact:db.contacts.find(c=>c.id===a.contactId),survey:db.surveys.find(s=>s.id===a.surveyId)?.title,agent:db.users.find(u=>u.id===a.assignedTo)?.name,hasResponse:db.responses.some(r=>r.assignmentId===a.id)}));return respond(res,200,{assignments:visible});}
  if(p==='/api/assignments'&&method==='POST'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');const d=await readBody(req),survey=db.surveys.find(s=>s.id===d.surveyId);if(!survey||survey.status!=='active')return error(res,400,'Təyinat üçün aktiv sorğu seçilməlidir.');
  let targetUsers=asArray(d.assignedTo).filter(id=>db.users.some(u=>u.id===id&&u.active));
@@ -127,12 +310,43 @@ if(p==='/api/login'&&method==='POST'){
  m=p.match(/^\/api\/assignments\/([\w-]+)\/calls$/);
  if(m&&method==='POST'){const a=db.assignments.find(x=>x.id===m[1]);if(!a)return error(res,404,'Təyinat tapılmadı.');if(!canManage(user)&&a.assignedTo!==user.id)return error(res,403,'İcazə yoxdur.');const d=await readBody(req);if(!statusSet.includes(d.outcome))return error(res,400,'Zəng nəticəsini seçin.');if(d.outcome==='completed'&&!db.responses.some(r=>r.assignmentId===a.id&&r.status==='completed'))return error(res,400,'Tamamlandı statusu üçün sorğunu yekunlaşdırın.');const call={id:uid(),assignmentId:a.id,agentId:user.id,outcome:d.outcome,notes:cleanText(d.notes,2000),durationSec:Math.max(0,Math.min(36000,Number(d.durationSec)||0)),createdAt:iso()};db.callLogs.unshift(call);a.status=d.outcome;a.notes=call.notes;a.attempts++;a.lastCallAt=iso();a.updatedAt=iso();if('callbackAt'in d)a.callbackAt=d.callbackAt&& !isNaN(Date.parse(d.callbackAt))?new Date(d.callbackAt).toISOString():null;log(req,user,'Zəng nəticəsi qeyd etdi',d.outcome,'Tapşırıq: '+a.id);save();return respond(res,201,{call,assignment:a});}
  if(m&&method==='GET'){const a=db.assignments.find(x=>x.id===m[1]);if(!a||!canManage(user)&&a.assignedTo!==user.id)return error(res,404,'Təyinat tapılmadı.');return respond(res,200,{calls:db.callLogs.filter(x=>x.assignmentId===a.id)});}
- if(p==='/api/responses'&&method==='GET'){return respond(res,200,{responses:filteredResponses(user).map(r=>({...r,survey:db.surveys.find(s=>s.id===r.surveyId)?.title,contact:db.contacts.find(c=>c.id===r.contactId)?.fullName,agent:db.users.find(u=>u.id===r.agentId)?.name}))});}
+ if(p==='/api/responses'&&method==='GET'){return respond(res,200,{responses:filteredResponses(user).map(r=>({...r,survey:db.surveys.find(s=>s.id===r.surveyId)?.title,contact:db.contacts.find(c=>c.id===r.contactId)?.fullName||r.contactName,agent:db.users.find(u=>u.id===r.agentId)?.name}))});}
  m=p.match(/^\/api\/responses\/assignment\/([\w-]+)$/);
  if(m){const a=db.assignments.find(x=>x.id===m[1]);if(!a||!canManage(user)&&a.assignedTo!==user.id)return error(res,404,'Təyinat tapılmadı.');const s=db.surveys.find(x=>x.id===a.surveyId);let r=db.responses.find(x=>x.assignmentId===a.id);if(method==='GET')return respond(res,200,{assignment:a,contact:db.contacts.find(c=>c.id===a.contactId),survey:s,response:r||null,calls:db.callLogs.filter(x=>x.assignmentId===a.id)});
  if(method==='PUT'){if(r&&r.status==='completed')return error(res,409,'Bu sorğu artıq yekunlaşdırılıb.');const d=await readBody(req),answers=answerSanitize(d.answers,s),submitted=d.status==='completed';for(const q of s.questions)if(!visible(q,answers))delete answers[q.id];if(submitted){const err=validateAnswers(s,answers);if(err)return error(res,400,err);}const now=iso();if(!r){r={id:uid(),surveyId:s.id,assignmentId:a.id,contactId:a.contactId,agentId:user.id,answers:{},status:'draft',durationSec:0,startedAt:now,updatedAt:now,submittedAt:null};db.responses.unshift(r);}r.answers=answers;r.status=submitted?'completed':'draft';r.durationSec=Math.max(0,Math.min(86400,Number(d.durationSec)||0));r.updatedAt=now;if(submitted){r.submittedAt=now;a.status='completed';a.updatedAt=now;db.callLogs.unshift({id:uid(),assignmentId:a.id,agentId:user.id,outcome:'completed',notes:'Sorğu tamamlandı',durationSec:r.durationSec,createdAt:now});a.attempts++;a.lastCallAt=now;log(req,user,'Müsahibəni tamamladı',s.title,'Respondent: '+(db.contacts.find(c=>c.id===a.contactId)?.fullName||''));}else if(a.status==='pending'){a.status='in_progress';log(req,user,'Müsahibə qaralamasını saxladı',s.title);}save();return respond(res,200,{response:r,assignment:a});}}
  m=p.match(/^\/api\/reports\/([\w-]+)$/);if(m&&method==='GET'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');const s=db.surveys.find(x=>x.id===m[1]);if(!s)return error(res,404,'Sorğu tapılmadı.');return respond(res,200,report(s,user));}
- m=p.match(/^\/api\/export\/([\w-]+)$/);if(m&&method==='GET'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');const s=db.surveys.find(x=>x.id===m[1]);if(!s)return error(res,404,'Sorğu tapılmadı.');const rs=db.responses.filter(r=>r.surveyId===s.id&&r.status==='completed');const head=['Tarix','Növ','Respondent / IP','Telefon','Operator','Müddət (san)',...s.questions.map(q=>q.title)];const rows=[head,...rs.map(r=>{const c=db.contacts.find(x=>x.id===r.contactId),agent=db.users.find(x=>x.id===r.agentId);return [r.submittedAt,r.isPublic?'İctimai link':'Operator',c?.fullName||(r.isPublic?('İctimai ('+(r.ip||'link')+')'):'—'),c?.phone||'—',agent?.name||(r.isPublic?'—':'Anonim'),r.durationSec,...s.questions.map(q=>r.answers[q.id])];})];const data='\ufeff'+rows.map(row=>row.map(csvVal).join(';')).join('\r\n');log(req,user,'Hesabatı CSV ixrac etdi',s.title);save();res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="sorgupro-'+s.id.slice(0,8)+'.csv"','Cache-Control':'no-store'});return res.end(data);}
+ m=p.match(/^\/api\/export\/([\w-]+)$/);if(m&&method==='GET'){
+   if(!canManage(user))return error(res,403,'İcazə yoxdur.');
+   const s=db.surveys.find(x=>x.id===m[1]);if(!s)return error(res,404,'Sorğu tapılmadı.');
+   const rep=report(s,user);
+   const rs=rep.responses;
+   const head=['№','Tarix və Saat','Növ','Respondent','Telefon','Operator / Əməkdaş','Sərf olunan vaxt','Müddət (saniyə)',...s.questions.map(q=>q.title)];
+   const rows=[head,...rs.map((r,idx)=>{
+     return [
+       idx+1,
+       r.submittedAt,
+       r.isPublic?'İctimai link':'Daxili sorğu',
+       r.contact,
+       r.phone,
+       r.agent+(r.agentUsername?' (@'+r.agentUsername+')':''),
+       formatDuration(r.durationSec),
+       r.durationSec,
+       ...s.questions.map(q=>r.answers[q.id])
+     ];
+   })];
+   rows.push([]);
+   rows.push(['--- ƏMƏKDAŞLARIN ÜMUMİ VAXT İCMALI ---']);
+   rows.push(['Əməkdaş','İstifadəçi adı','Rol','Tamamlanan sorğu sayı','Bir sorğuya orta vaxt','Ümumi sərf olunan vaxt','Cəmi saniyə']);
+   rep.userStats.forEach(u=>{
+     rows.push([u.name,u.username||'—',u.role==='admin'?'Admin':u.role==='editor'?'Redaktor':u.role==='public'?'İctimai':'Operator',u.count,formatDuration(u.avgDurationSec),formatDuration(u.totalDurationSec),u.totalDurationSec]);
+   });
+   rows.push(['CƏMİ YEKUN','—','—',rep.completed,formatDuration(rep.averageDuration),formatDuration(rep.totalDurationAll),rep.totalDurationAll]);
+   const data='\ufeff'+rows.map(row=>row.map(csvVal).join(';')).join('\r\n');
+   log(req,user,'Hesabatı CSV ixrac etdi',s.title);
+   save();
+   res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="sorgupro-'+s.id.slice(0,8)+'.csv"','Cache-Control':'no-store'});
+   return res.end(data);
+ }
  if(p==='/api/users'&&method==='GET'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');return respond(res,200,{users:db.users.map(redacted)});}
  if(p==='/api/users'&&method==='POST'){if(user.role!=='admin')return error(res,403,'Yalnız administrator istifadəçi yarada bilər.');const d=await readBody(req),username=cleanText(d.username,60);if(!/^[a-zA-Z0-9._-]{3,40}$/.test(username))return error(res,400,'İstifadəçi adı 3–40 simvol, latın hərfləri və rəqəmlərdən ibarət olmalıdır.');if(db.users.some(u=>u.username.toLowerCase()===username.toLowerCase()))return error(res,409,'İstifadəçi adı artıq mövcuddur.');if(typeof d.password!=='string'||d.password.length<10)return error(res,400,'Şifrə ən azı 10 simvol olmalıdır.');const role=['admin','editor','agent'].includes(d.role)?d.role:'agent';const u={id:uid(),username,name:cleanText(d.name,100)||username,role,passwordHash:hashPass(d.password),active:true,createdAt:iso()};db.users.push(u);log(req,user,'Yeni istifadəçi yaratdı',u.name+' (@'+u.username+', rol: '+role+')');save();return respond(res,201,{user:redacted(u)});}
  m=p.match(/^\/api\/users\/([\w-]+)$/);if(m&&method==='PUT'){if(user.role!=='admin')return error(res,403,'Yalnız administrator istifadəçi redaktə edə bilər.');const u=db.users.find(x=>x.id===m[1]);if(!u)return error(res,404,'İstifadəçi tapılmadı.');const d=await readBody(req);if('name'in d)u.name=cleanText(d.name,120);if('active'in d){if(u.id===user.id&&!d.active)return error(res,400,'Öz hesabınızı deaktiv edə bilməzsiniz.');u.active=!!d.active;}if('role'in d&&['admin','editor','agent'].includes(d.role)){if(u.id===user.id&&d.role!=='admin')return error(res,400,'Öz admin rolunuzu dəyişə bilməzsiniz.');u.role=d.role;}if('password'in d){if(typeof d.password!=='string'||d.password.length<10)return error(res,400,'Şifrə ən azı 10 simvol olmalıdır.');u.passwordHash=hashPass(d.password);db.sessions=db.sessions.filter(s=>s.userId!==u.id);}log(req,user,'İstifadəçi hesabını yenilədi',u.name+' (@'+u.username+')');save();return respond(res,200,{user:redacted(u)});}
