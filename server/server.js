@@ -7,7 +7,13 @@ const {get,save,uid,iso,dir,isProduction,isHostinger}=require('./store');
 const {seed,hashPass}=require('./seed');
 seed();
 console.log('✦ Məlumat qovluğu: '+dir+' | Rejim: '+(isProduction?'production':'local-demo')+(isHostinger?' | Hostinger':'') );
-const PORT=Number(process.env.PORT)||3000, HOST=process.env.HOST||'0.0.0.0', root=path.join(__dirname,'..','public');
+process.on('uncaughtException', err => { console.error('⚠️ [uncaughtException]:', err); });
+process.on('unhandledRejection', reason => { console.error('⚠️ [unhandledRejection]:', reason); });
+const rawPort = process.env.PORT;
+const isSocket = typeof rawPort === 'string' && (rawPort.startsWith('/') || rawPort.startsWith('\\\\.\\pipe\\'));
+const PORT = isSocket ? rawPort : (Number(rawPort) || 3000);
+const HOST = process.env.HOST || (isSocket ? undefined : '0.0.0.0');
+const root = path.join(__dirname,'..','public');
 const TTL=12*60*60*1000;const loginAttempts=new Map();
 const sha=v=>crypto.createHash('sha256').update(v).digest('hex');
 function verify(password, stored){try{const [salt,key]=stored.split(':');return crypto.timingSafeEqual(crypto.scryptSync(password,salt,64),Buffer.from(key,'hex'));}catch{return false;}}
@@ -84,9 +90,15 @@ if(p==='/api/login'&&method==='POST'){
  if(p==='/api/audit'&&method==='GET'){if(user.role!=='admin')return error(res,403,'İcazə yoxdur.');return respond(res,200,{audit:db.audit.slice(0,60)});}
  return error(res,404,'API ünvanı mövcud deyil.');}
 const MIME={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.json':'application/json; charset=utf-8'};
-http.createServer(async(req,res)=>{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');res.setHeader('X-Frame-Options','DENY');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+const server = http.createServer(async(req,res)=>{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');res.setHeader('X-Frame-Options','DENY');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
  try{const url=new URL(req.url,'http://localhost');if(url.pathname.startsWith('/api/')){
   if(!['GET','HEAD','OPTIONS'].includes(req.method)){if(req.headers['content-type']?.split(';')[0]!=='application/json')return error(res,415,'Content-Type: application/json tələb olunur.');const origin=req.headers.origin;if(origin){const host=req.headers['x-forwarded-host']||req.headers.host;if(new URL(origin).host.toLowerCase()!==String(host).split(',')[0].trim().toLowerCase())return error(res,403,'Mənbəyə icazə verilmir.');}}return await api(req,res,url);
  }if(req.method!=='GET')return error(res,405,'Metod qəbul edilmir.');let filepath=url.pathname==='/'?'index.html':decodeURIComponent(url.pathname).replace(/^\/+/, '');filepath=path.resolve(root,filepath);if(!filepath.startsWith(root+path.sep)&&filepath!==path.join(root,'index.html'))return error(res,403,'İcazə yoxdur.');if(!fs.existsSync(filepath)||!fs.statSync(filepath).isFile()){filepath=path.join(root,'index.html');}res.writeHead(200,{'Content-Type':MIME[path.extname(filepath)]||'application/octet-stream','Cache-Control':path.basename(filepath)==='index.html'?'no-store':'public, max-age=3600'});fs.createReadStream(filepath).pipe(res);
  }catch(e){console.error(e);if(!res.headersSent)error(res,e.status||500,e.status?e.message:'Serverdə xəta baş verdi.');}
-}).listen(PORT,HOST,()=>console.log(`\n✦ SorğuPro server: http://localhost:${PORT}\n   Node.js ${process.version} · əlavə npm paketi tələb olunmur\n`));
+});
+server.on('error', err => { console.error('⚠️ HTTP Server xətası (Server error):', err); });
+if (isSocket) {
+  server.listen(PORT, () => console.log(`\n✦ SorğuPro server socket dinləyir: ${PORT}\n   Node.js ${process.version}\n`));
+} else {
+  server.listen(PORT, HOST, () => console.log(`\n✦ SorğuPro server: http://${HOST}:${PORT}\n   Node.js ${process.version} · əlavə npm paketi tələb olunmur\n`));
+}

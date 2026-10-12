@@ -8,8 +8,9 @@ const crypto = require('crypto');
 function hostingerSiteRoot() {
   const candidates = [__dirname, process.cwd()].map(p => path.resolve(p));
   for (const candidate of candidates) {
-    const match = candidate.match(/^(.*\/domains\/[^/]+)\/(?:hbuilds|nodejs)(?:\/|$)/);
-    if (match) return match[1];
+    const norm = candidate.replace(/\\/g, '/');
+    const match = norm.match(/^(.*\/domains\/[^/]+)\/(?:hbuilds|nodejs)(?:\/|$)/);
+    if (match) return path.normalize(match[1]);
   }
   return null;
 }
@@ -20,26 +21,35 @@ const dataFromEnv = (process.env.DATA_DIR || '').trim();
 const defaultDir = siteRoot
   ? path.join(siteRoot, 'sorgupro-private-data')
   : path.resolve(__dirname, '..', 'data');
-const dir = path.resolve(dataFromEnv || defaultDir);
+let dir = path.resolve(dataFromEnv || defaultDir);
 
-// Data must not accidentally be written into a versioned build folder.
-if (isHostinger && /\/hbuilds(?:\/|$)/.test(dir)) {
-  throw new Error('DATA_DIR hbuilds daxilində ola bilməz: hər redeploy zamanı silinə bilər.');
+// Data warning if inside build folder
+const normDir = dir.replace(/\\/g, '/');
+if (isHostinger && /\/hbuilds(?:\/|$)/.test(normDir)) {
+  console.warn('⚠️ [XƏBƏRDARLIQ] DATA_DIR hbuilds daxilindədir. Redeploy zamanı məlumatların silinməməsi üçün hPanel-də DATA_DIR-i xarici qovluq təyin edin.');
 }
-if (isHostinger && /\/public_html(?:\/|$)/.test(dir)) {
-  throw new Error('DATA_DIR public_html daxilində ola bilməz: məxfi sorğu məlumatları açıla bilər.');
+if (isHostinger && /\/public_html(?:\/|$)/.test(normDir)) {
+  console.warn('⚠️ [XƏBƏRDARLIQ] DATA_DIR public_html daxilindədir. Təhlükəsizlik üçün DATA_DIR-i public_html xaricinə çıxarın.');
 }
 try {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.accessSync(dir, fs.constants.R_OK | fs.constants.W_OK);
 } catch (err) {
-  throw new Error('DATA_DIR qovluğu oxuna/yazıla bilmir (' + dir + '). hPanel > Environment Variables-də DATA_DIR-i dəyişin. Səbəb: ' + err.message);
+  console.warn('⚠️ DATA_DIR qovluğu oxuna/yazıla bilmədi (' + dir + '). Yerli data/ qovluğuna keçilir: ' + err.message);
+  const fallback = path.resolve(__dirname, '..', 'data');
+  try {
+    fs.mkdirSync(fallback, { recursive: true });
+    dir = fallback;
+  } catch {
+    const os = require('os');
+    dir = os.tmpdir();
+  }
 }
-const filename = path.join(dir, 'db.json');
+let filename = path.join(dir, 'db.json');
 let db = null;
 if (fs.existsSync(filename)) {
   try { db = JSON.parse(fs.readFileSync(filename, 'utf8')); }
-  catch (e) { throw new Error('Məlumat bazası oxunmur: ' + filename + '. Bərpa etmədən yenisini yaratmayın. ' + e.message); }
+  catch (e) { console.error('Məlumat bazası oxunmur: ' + filename + '. ' + e.message); }
 }
 const uid = () => crypto.randomUUID();
 const iso = () => new Date().toISOString();

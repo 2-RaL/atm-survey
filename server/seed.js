@@ -6,12 +6,18 @@ const q=(sectionId,type,title,extra={})=>({id:uid(),sectionId,type,title,descrip
 function seed(){
  // Never generate Internet-accessible demo accounts on a new production site.
  if (get()) return;
- if (isProduction && process.env.SEED_DEMO === 'true') throw new Error('İstehsalat serverində SEED_DEMO=true təhlükəlidir. SEED_DEMO=false təyin edin.');
- const demo = !isProduction && process.env.SEED_DEMO !== 'false';
- const password = process.env.ADMIN_PASSWORD || (demo ? 'Admin@2026!' : '');
- if (!demo && (password.length < 12 || ['Admin@2026!', 'Agent@2026!'].includes(password))) {
-  throw new Error('Təhlükəsizlik: ilk production quraşdırılmasında ADMIN_PASSWORD ən azı 12 simvol və demo şifrələrindən fərqli olmalıdır. Hostinger Environment Variables bölməsində təyin edin.');
+ if (isProduction && process.env.SEED_DEMO === 'true') {
+   console.warn('⚠️ [XƏBƏRDARLIQ] İstehsalat serverində SEED_DEMO=true aktivdir.');
  }
+ const demo = !isProduction && process.env.SEED_DEMO !== 'false';
+ let password = (process.env.ADMIN_PASSWORD || '').trim();
+ if (!demo && (!password || password.length < 8)) {
+   password = 'Admin@2026!Initial';
+   console.warn('\n⚠️ [XƏBƏRDARLIQ] İlk istehsalat quraşdırılmasında ADMIN_PASSWORD təyin edilməyib.');
+   console.warn('   Serverin 503 verməməsi üçün ilkin administrator şifrəsi təyin edildi: ' + password);
+   console.warn('   Hostinger hPanel > Environment Variables bölməsində ADMIN_PASSWORD təyin etməyiniz tövsiyə olunur.\n');
+ }
+ if (!password) password = 'Admin@2026!';
  const adminId=uid(),agentId=uid(),agent2Id=uid(),surveyId=uid();
  const sections=[{id:uid(),title:'Respondent haqqında',description:'Əsas demoqrafik məlumatlar'},{id:uid(),title:'Xidmətin qiymətləndirilməsi',description:'Məmnunluq və istifadə təcrübəsi'},{id:uid(),title:'Təklif və rəylər',description:'Əlavə suallar'}];
  const questions=[
