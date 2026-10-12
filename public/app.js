@@ -121,17 +121,17 @@ async function init(){
 }
 
 async function refresh(){
-  const load=[request('/api/surveys'),request('/api/contacts'),request('/api/dashboard')];
+  const load=[request('/api/surveys'),request('/api/dashboard')];
   if(isLeader()){
     load.push(request('/api/users'));
     load.push(request('/api/audit'));
   }
   const results=await Promise.all(load);
   state.surveys=results[0].surveys;
-  state.contacts=results[1].contacts;
-  state.dashboard=results[2];
-  state.users=results[3]?.users||[];
-  state.audit=results[4]?.audit||[];
+  state.contacts=[];
+  state.dashboard=results[1];
+  state.users=results[2]?.users||[];
+  state.audit=results[3]?.audit||[];
 }
 
 function renderLogin(){
@@ -187,7 +187,6 @@ function renderLogin(){
 const NAV=[
   ['dashboard','İdarə paneli','dashboard'],
   ['surveys','Sorğular','surveys'],
-  ['contacts','Respondent bazası','contacts'],
   ['reports','Hesabatlar','reports'],
   ['team','Operatorlar','team'],
   ['audit','Fəaliyyət tarixçəsi','clock'],
@@ -204,11 +203,11 @@ function route(){
   const hash=location.hash||'';
   const pubMatch=hash.match(/^#\/s\/([\w-]+)/);
   if(pubMatch){loadPublicSurvey(pubMatch[1]);return;}
-  const p=hash.match(/^#\/([\w-]+)/)?.[1]||'dashboard';
+  const p=hash.match(/^#\/([\w-]+)/)?.[1]||(isLeader()?'dashboard':'surveys');
   if(state.user){
-    const allowed=['dashboard','surveys','contacts','reports','team','audit','settings','builder','interview'];
-    state.page=allowed.includes(p)?p:'dashboard';
-    if(state.page==='builder'||state.page==='interview')state.page='dashboard';
+    const allowed=['dashboard','surveys','reports','team','audit','settings','builder','interview'];
+    state.page=allowed.includes(p)?p:(isLeader()?'dashboard':'surveys');
+    if(state.page==='builder'||state.page==='interview')state.page=isLeader()?'dashboard':'surveys';
     render();
   }
 }
@@ -306,9 +305,10 @@ function dashboardPage(){
     ['Aktiv sorğular',z.activeSurveys,'Hazırda yayımlanan sorğular','surveys',''],
     ['Tamamlanan sorğu',z.completed,'Uğurla başa çatan müsahibələr','check','mint'],
     ['Cəmi sərf olunan vaxt',formatTimeSpent(z.totalDurationSec),'Bütün müsahibələr üzrə','clock','blue'],
-    ['Respondent bazası',pl(z.respondents),'Bazada mövcud əlaqələr','contacts','orange']
+    ['Qəbul edilən cavablar',pl(z.completed),'Sistemə daxil olan cavablar','file','orange']
   ];
   const maxDay=Math.max(1,...(x.days||[]).map(d=>d.completed));
+  const activeList=state.surveys.filter(s=>s.status==='active');
   return `
     ${heading('İDARƏ PANELİ','Salam, '+esc(state.user.name.split(' ')[0])+'!','Sorğular üzrə birbaşa müsahibə aparın və əməkdaşların vaxt hesabatlarını izləyin.',`
       <button class="btn" data-action="refresh">${ico('refresh',16)} Yenilə</button>
@@ -317,7 +317,7 @@ function dashboardPage(){
     <div class="welcome-banner">
       <div>
         <h2>Məlumatı topla. Dəqiq vaxt və nəticə ilə analiz et.</h2>
-        <p>${leader?'Sorğuları idarə edin, respondent bazasında sektorları tənzimləyin və əməkdaşların sərf etdiyi vaxtı izləyin.':'İstənilən aktiv sorğunu seçib dərhal müsahibəyə başlayın. Sorğu bitdikdə sərf olunan vaxt avtomatik qeydə alınır.'}</p>
+        <p>${leader?'Sorğuları idarə edin və əməkdaşların sərf etdiyi vaxtı izləyin.':'İstənilən aktiv sorğunu seçib dərhal müsahibəyə başlayın. Sorğu bitdikdə sərf olunan vaxt avtomatik qeydə alınır.'}</p>
       </div>
       <button class="btn" data-action="nav" data-page="surveys">Sorğulara bax ${ico('arrow',15)}</button>
     </div>
@@ -328,6 +328,31 @@ function dashboardPage(){
         <div class="stat-foot">${desc}</div>
       </div>
     `).join('')}</div>
+    ${activeList.length?`
+      <div class="card mt20">
+        <div class="card-head">
+          <div><h3>Aktiv Sorğular (Birbaşa Başla)</h3><p>Müsahibə aparmaq üçün sorğuya klikləyib dərhal başlayın</p></div>
+          <button class="section-link" data-action="nav" data-page="surveys">Kitabxanaya bax ${ico('arrow',14)}</button>
+        </div>
+        <div class="card-body">
+          <div class="grid cols-3" style="gap:14px">
+            ${activeList.map(s=>`
+              <div class="card" style="border:1px solid #e2e8f0;padding:16px;border-radius:12px;background:#f8fafc">
+                <div class="gap10" style="justify-content:space-between;margin-bottom:8px">
+                  <span class="badge active">Aktiv</span>
+                  <span style="font-size:12px;color:#64748b">${s.questionsCount} sual · ~${s.estimatedMinutes} dəq</span>
+                </div>
+                <h4 style="margin:0 0 6px 0;font-size:16px;font-weight:700">${esc(s.title)}</h4>
+                <p style="font-size:12px;color:#64748b;margin:0 0 14px 0;line-height:1.4">${esc(s.description||'Müsahibəyə başlamaq üçün düyməni sıxın.')}</p>
+                <button class="btn btn-primary w100" data-action="start-survey" data-id="${s.id}">
+                  ${ico('phone',15)} Sorğuya başla
+                </button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `:''}
     <div class="grid cols-3 mt20">
       <div class="card span-2">
         <div class="card-head">
@@ -350,7 +375,7 @@ function dashboardPage(){
         <div class="card-body">
           <div class="info-pair"><span>Bir sorğuya orta vaxt</span><b>${formatTimeSpent(z.averageDurationSec)}</b></div>
           <div class="info-pair"><span>Ümumi qeydə alınan vaxt</span><b>${formatTimeSpent(z.totalDurationSec)}</b></div>
-          <div class="info-pair"><span>Cəmi respondent</span><b>${pl(z.respondents)}</b></div>
+          <div class="info-pair"><span>Ümumi cavablar</span><b>${pl(z.completed)}</b></div>
           <div class="highlight-box mt20">
             ${ico('spark',14)} &nbsp; Tapşırıq təyinatına ehtiyac yoxdur. Sorğuya klikləyib dərhal başlayın.
           </div>
@@ -376,7 +401,7 @@ function dashboardPage(){
                 <td>${fmtTime(a.submittedAt)}</td>
                 <td><span class="time-spent-badge">${ico('clock',12)} ${formatTimeSpent(a.durationSec)}</span></td>
               </tr>
-            `).join('')||`<tr><td colspan="5">${empty('phone','Hələ müsahibə keçirilməyib','Sorğular səhifəsindən ilk müsahibəyə başlayın.')}</td></tr>`}
+            `).join('')||`<tr><td colspan="5" style="text-align:center;padding:26px;color:#64748b">Hazırda tamamlanmış müsahibə qeydi yoxdur.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -417,7 +442,6 @@ function surveysPage(){
           <div class="survey-metrics">
             <span><b>${s.questionsCount}</b>Sual</span>
             <span><b>${s.responsesCount}</b>Cavab</span>
-            <span><b>${s.contactsCount||0}</b>Bazada</span>
             <span><b>${s.estimatedMinutes} dəq.</b>Müddət</span>
           </div>
           ${isAdmin()&&s.access!=='private'&&s.status==='active'?`
@@ -1114,15 +1138,13 @@ function activeQuestions(){
 }
 
 // ——— DIRECT SURVEY INTERVIEW FLOW ———
-function startDirectInterview(surveyId, contactId=null){
+function startDirectInterview(surveyId){
   const survey=state.surveys.find(s=>s.id===surveyId);
   if(!survey)return notify('Sorğu tapılmadı.',true);
-  const contact=contactId?state.contacts.find(c=>c.id===contactId):null;
   state.interview={
     survey,
-    contact: contact||null,
-    respondentName: contact?.fullName||'',
-    respondentPhone: contact?.phone||'',
+    respondentName:'',
+    respondentPhone:'',
     answers:{},
     startTime: Date.now()
   };
@@ -1140,7 +1162,6 @@ function interviewPage(){
   if(!x)return empty('surveys','Müsahibə seçilməyib','Sorğular səhifəsindən aktiv sorğu seçin.');
   if(state.interviewDone)return `<div class="card" style="max-width:680px;margin:60px auto">${successPage()}</div>`;
   const {survey:s}=x,sec=s.sections[state.interviewIndex],p=(state.interviewIndex+1)/s.sections.length*100;
-  const surveyContacts=state.contacts.filter(c=>c.surveyId===s.id||!c.surveyId);
 
   return `
     ${heading('CANLI MÜSAHİBƏ',esc(s.title),'Cavabları daxil edin. Hər respondentə sərf olunan vaxt avtomatik qeydə alınır.',`
@@ -1182,25 +1203,13 @@ function interviewPage(){
           </div>
           <div class="separator"></div>
           <div class="field">
-            <label>Bazada olan respondent (Könüllü)</label>
-            <select id="interview-contact-select" data-action="select-interview-contact" style="font-size:12px">
-              <option value="">-- Bazadan seçin və ya aşağı yazın --</option>
-              ${surveyContacts.map(c=>`
-                <option value="${c.id}" ${x.contact?.id===c.id?'selected':''}>${esc(c.fullName)} (${esc(c.phone)})</option>
-              `).join('')}
-            </select>
+            <label>Respondent (Ad / Qeyd) <span style="font-weight:normal;color:#64748b">(Könüllü)</span></label>
+            <input id="interview-name-input" value="${esc(x.respondentName||'')}" placeholder="Boş qalsa avtomatik ardıcıl nömrələnir...">
           </div>
           <div class="field">
-            <label>Respondent adı</label>
-            <input id="interview-name-input" value="${esc(x.contact?.fullName||x.respondentName||'')}" placeholder="Ad və soyad...">
+            <label>Əlaqə nömrəsi <span style="font-weight:normal;color:#64748b">(Könüllü)</span></label>
+            <input id="interview-phone-input" value="${esc(x.respondentPhone||'')}" placeholder="+994...">
           </div>
-          <div class="field">
-            <label>Telefon</label>
-            <input id="interview-phone-input" value="${esc(x.contact?.phone||x.respondentPhone||'')}" placeholder="+994...">
-          </div>
-          ${x.contact?.phone?`
-            <a class="call-cta" href="tel:${esc(x.contact.phone.replace(/[^\d+]/g,''))}">${ico('phone',16)} Telefona zəng et</a>
-          `:''}
         </div>
         <div class="card person-card mt20">
           <div class="aside-title">Sorğu bölmələri</div>
@@ -1226,17 +1235,19 @@ function successPage(){
     <div class="success-state">
       <div class="confirm-illustration">${ico('check',34)}</div>
       <h2>Müsahibə tamamlandı!</h2>
-      <p>Cavablar və sərf olunan vaxt uğurla qeydə alındı.<br>Bu müsahibəyə sərf olunan vaxt: <b class="time-spent-badge" style="font-size:14px">${ico('clock',14)} ${formatTimeSpent(durSec)}</b></p>
-      <div class="gap10" style="justify-content:center;margin:28px auto 5px">
-        <button class="btn btn-primary" data-action="start-survey" data-id="${x.survey.id}">
-          ${ico('plus',15)} Yeni müsahibəyə başla
+      <p>Cavablar sistemə ardıcıl və etibarlı şəkildə qeydə alındı.<br>Bu müsahibəyə sərf olunan vaxt: <b class="time-spent-badge" style="font-size:14px">${ico('clock',14)} ${formatTimeSpent(durSec)}</b></p>
+      <div class="gap10" style="justify-content:center;margin:28px auto 5px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-lg" data-action="next-direct-interview" data-id="${x.survey.id}">
+          ${ico('plus',16)} Növbəti müsahibəyə başla
         </button>
         <button class="btn" data-action="nav" data-page="surveys">
           ${ico('surveys',15)} Bütün sorğular
         </button>
-        <button class="btn" data-action="open-report" data-id="${x.survey.id}">
-          ${ico('chart',15)} Hesabata bax
-        </button>
+        ${isLeader()?`
+          <button class="btn" data-action="open-report" data-id="${x.survey.id}">
+            ${ico('chart',15)} Hesabata bax
+          </button>
+        `:''}
       </div>
     </div>`;
 }
@@ -1317,15 +1328,15 @@ async function finishInterview(){
   }
   const nameInput=$('#interview-name-input');
   const phoneInput=$('#interview-phone-input');
-  const respondentName=nameInput?.value?.trim()||x.contact?.fullName||'Anonim respondent';
-  const respondentPhone=phoneInput?.value?.trim()||x.contact?.phone||'';
+  const respondentName=nameInput?.value?.trim()||'';
+  const respondentPhone=phoneInput?.value?.trim()||'';
   const durationSec=Math.round((Date.now()-x.startTime)/1000);
 
   try{
     await api('/api/surveys/'+x.survey.id+'/responses',{
       answers: x.answers,
       durationSec,
-      contactId: x.contact?.id||null,
+      contactId: null,
       respondentName,
       respondentPhone,
       status: 'completed'
@@ -1700,9 +1711,9 @@ async function dispatchAction(el){
       case'close-mobile':state.mobile=false;render();break;
       case'logout':await api('/api/logout',{});state.user=null;state.report=null;state.builder=null;location.hash='';renderLogin();notify('Hesabdan çıxış edildi.');break;
       case'refresh':await refresh();render();notify('Məlumatlar yeniləndi.');break;
-      case'select-sector':state.selectedSector=el.dataset.sector||'all';render();break;
       case'start-survey':startDirectInterview(id);break;
-      case'start-survey-with-contact':startDirectInterview(el.dataset.surveyId,el.dataset.contactId);break;
+      case'next-direct-interview':startDirectInterview(id||state.interview?.survey?.id);break;
+      case'start-survey-with-contact':startDirectInterview(el.dataset.surveyId);break;
       case'new-survey':{
         const s={title:'Yeni sorğu',description:'',category:'Ümumi',status:'draft',access:'public',estimatedMinutes:5,sections:[{id:mkId(),title:'Bölmə 1',description:''}],questions:[]};
         const r=await api('/api/surveys',s);await refresh();makeBuilder(r.survey);notify('Yeni sorğu yaradıldı.');break;

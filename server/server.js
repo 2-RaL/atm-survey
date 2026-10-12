@@ -370,12 +370,17 @@ function report(survey,user){
     };
   });
 
-  const formattedResponses = responses.map(r => {
-    const contactObj = get().contacts.find(c => c.id === r.contactId);
+  const formattedResponses = responses.slice().sort((a,b) => {
+    if (a.seqNumber && b.seqNumber) return a.seqNumber - b.seqNumber;
+    return (a.submittedAt||'').localeCompare(b.submittedAt||'');
+  }).map((r, idx) => {
+    const contactObj = get().contacts?.find(c => c.id === r.contactId);
     const agentObj = get().users.find(u => u.id === r.agentId);
+    const seq = r.seqNumber || (idx + 1);
     return {
       id: r.id,
-      contact: r.isPublic ? ('İctimai ('+(r.ip||'link')+')') : (contactObj?.fullName || r.contactName || 'Anonim respondent'),
+      seqNumber: seq,
+      contact: r.isPublic ? (r.contactName || ('İctimai #' + seq)) : (contactObj?.fullName || r.contactName || ('Respondent #' + seq)),
       phone: contactObj?.phone || r.contactPhone || '—',
       agent: r.isPublic ? 'İctimai link' : (agentObj?.name || 'Anonim'),
       agentUsername: agentObj?.username || '',
@@ -421,9 +426,13 @@ if(pubM&&method==='POST'){
  const err=validateAnswers(s,answers);
  if(err)return error(res,400,err);
  const now=iso(), ip=getIp(req);
- const r={id:uid(),surveyId:s.id,assignmentId:null,contactId:null,agentId:null,isPublic:true,ip,answers,status:'completed',durationSec:Math.max(0,Math.min(86400,Number(d.durationSec)||0)),startedAt:now,updatedAt:now,submittedAt:now};
+ const surveyResponses = db.responses.filter(r => r.surveyId === s.id);
+ const seqNumber = surveyResponses.length + 1;
+ const durationSec = Math.max(0,Math.min(86400,Number(d.durationSec)||0));
+ const contactName = cleanText(d.respondentName || ('Anonim Respondent #' + seqNumber), 150);
+ const r={id:uid(),seqNumber,surveyId:s.id,assignmentId:null,contactId:null,contactName,contactPhone:cleanText(d.respondentPhone||'',50),agentId:null,isPublic:true,ip,answers,status:'completed',durationSec,durationFormatted:formatDuration(durationSec),operatorName:'İctimai (Link)',startedAt:now,updatedAt:now,submittedAt:now};
  db.responses.unshift(r);
- log(req,null,'İctimai sorğu cavablandırıldı',s.title,'IP: '+ip);
+ log(req,null,'İctimai sorğu cavablandırıldı',s.title,'Sıra: #'+seqNumber+' · IP: '+ip);
  save();
  return respond(res,201,{ok:true,message:'Cavablarınız uğurla qeydə alındı. Təşəkkür edirik!'});
 }
@@ -458,13 +467,15 @@ if(p==='/api/login'&&method==='POST'){
    }
    const now=iso(),ip=getIp(req);
    let contact=null;
-   if(d.contactId) contact=db.contacts.find(c=>c.id===d.contactId);
-   const contactName=cleanText(contact?.fullName||d.respondentName||'Anonim respondent',150);
+   if(d.contactId) contact=db.contacts?.find(c=>c.id===d.contactId);
+   const surveyResponses = db.responses.filter(r => r.surveyId === s.id);
+   const seqNumber = surveyResponses.length + 1;
+   const contactName=cleanText(contact?.fullName||d.respondentName||('Respondent #' + seqNumber),150);
    const contactPhone=cleanText(contact?.phone||d.respondentPhone||'',50);
    const durationSec=Math.max(0,Math.min(86400,Number(d.durationSec)||0));
-   const r={id:uid(),surveyId:s.id,assignmentId:null,contactId:contact?.id||null,contactName,contactPhone,agentId:user.id,isPublic:false,ip,answers,status:d.status==='draft'?'draft':'completed',durationSec,durationFormatted:formatDuration(durationSec),operatorName:user.username,notes:cleanText(d.notes,2000),startedAt:d.startedAt||now,updatedAt:now,submittedAt:d.status==='draft'?null:now};
+   const r={id:uid(),seqNumber,surveyId:s.id,assignmentId:null,contactId:contact?.id||null,contactName,contactPhone,agentId:user.id,isPublic:false,ip,answers,status:d.status==='draft'?'draft':'completed',durationSec,durationFormatted:formatDuration(durationSec),operatorName:user.username,notes:cleanText(d.notes,2000),startedAt:d.startedAt||now,updatedAt:now,submittedAt:d.status==='draft'?null:now};
    db.responses.unshift(r);
-   log(req,user,'Müsahibəni tamamladı',s.title,'Respondent: '+contactName+' · Müddət: '+formatDuration(durationSec));
+   log(req,user,'Müsahibəni tamamladı',s.title,'Sıra: #'+seqNumber+' · Respondent: '+contactName+' · Müddət: '+formatDuration(durationSec));
    save();
    return respond(res,201,{ok:true,response:r});
  }
@@ -500,7 +511,7 @@ if(p==='/api/login'&&method==='POST'){
 
     const head=['№','Tarix və Saat','Növ','Respondent','Telefon','Operator / Əməkdaş','Sərf olunan vaxt','Müddət (saniyə)',...s.questions.map((q,idx)=>'Sual '+(idx+1)+': '+q.title)];
     const rows=rs.map((r,idx)=>[
-      idx+1,
+      r.seqNumber || (idx+1),
       r.submittedAt ? r.submittedAt.replace('T', ' ').slice(0, 19) : '—',
       r.isPublic ? 'İctimai link' : 'Daxili sorğu',
       r.contact,

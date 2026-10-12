@@ -53,10 +53,30 @@ if (fs.existsSync(filename)) {
 }
 const uid = () => crypto.randomUUID();
 const iso = () => new Date().toISOString();
+
 function write() {
-  const temp = filename + '.' + process.pid + '.tmp';
+  const unique = crypto.randomBytes(6).toString('hex');
+  const temp = filename + '.' + process.pid + '.' + unique + '.tmp';
   fs.writeFileSync(temp, JSON.stringify(db, null, 2), { mode: 0o600 });
-  fs.renameSync(temp, filename);
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      fs.renameSync(temp, filename);
+      return;
+    } catch (err) {
+      if (attempt === 9) {
+        try {
+          fs.copyFileSync(temp, filename);
+          fs.unlinkSync(temp);
+          return;
+        } catch {
+          try { fs.unlinkSync(temp); } catch {}
+          throw err;
+        }
+      }
+      const waitTil = Date.now() + 10 * (attempt + 1);
+      while (Date.now() < waitTil) {}
+    }
+  }
 }
 function get() { return db; }
 function init(data) { if (db) return false; db = data; write(); return true; }

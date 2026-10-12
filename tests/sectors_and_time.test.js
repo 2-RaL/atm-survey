@@ -203,3 +203,97 @@ test('Direct survey interview flow, survey sectors for contacts, and operator ti
   assert.ok(auditHtml.includes('font-size: 14pt !important;'));
   assert.ok(auditHtml.includes('font-size: 12pt !important;'));
 });
+
+test('Concurrent multi-operator submissions: sequential ordering, zero data loss, no limits', async t => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sorgu-concurrent-test-'));
+  t.after(() => {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  });
+
+  const { base, stop } = await startServer(tmpDir);
+  t.after(() => stop());
+
+  const adminAuth = await login(base, 'admin', 'UnitTest@2026!');
+  const op1Auth = await login(base, 'operator1', 'Agent@2026!');
+  const op2Auth = await login(base, 'operator2', 'Agent@2026!');
+
+  // Create additional operator
+  const createOp3 = await fetch(`${base}/api/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: adminAuth.cookie },
+    body: JSON.stringify({ username: 'operator3', name: 'Operator Üç', password: 'Agent@2026!Extra', role: 'agent' }),
+  });
+  assert.equal(createOp3.status, 201);
+  const op3Auth = await login(base, 'operator3', 'Agent@2026!Extra');
+
+  // Create test survey
+  const createSurvRes = await fetch(`${base}/api/surveys`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: adminAuth.cookie },
+    body: JSON.stringify({
+      title: 'Kütləvi Eynivaxtlı Sorğu Sınağı',
+      status: 'active',
+      access: 'public',
+      sections: [{ id: 'sec-1', title: 'Əsas Bölmə' }],
+      questions: [
+        { id: 'q-val', sectionId: 'sec-1', type: 'short_text', title: 'Rəyiniz?', required: false }
+      ]
+    })
+  });
+  assert.equal(createSurvRes.status, 201);
+  const surveyData = await createSurvRes.json();
+  const sId = surveyData.survey.id;
+
+  // Run 25 simultaneous concurrent submissions across multiple operators
+  const count = 25;
+  const auths = [op1Auth, op2Auth, op3Auth];
+  const promises = [];
+
+  for (let i = 0; i < count; i++) {
+    const auth = auths[i % auths.length];
+    promises.push((async () => {
+      const res = await fetch(`${base}/api/surveys/${sId}/responses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: auth.cookie },
+        body: JSON.stringify({
+          respondentName: `Respondent N${i + 1}`,
+          respondentPhone: `+99450000${String(i).padStart(4, '0')}`,
+          durationSec: 30 + (i % 60),
+          answers: { 'q-val': `Cavab ${i + 1}` },
+          status: 'completed'
+        })
+      });
+      assert.equal(res.status, 201);
+      const data = await res.json();
+      return data.response;
+    })());
+  }
+
+  const results = await Promise.all(promises);
+  assert.equal(results.length, count, 'All 25 concurrent responses received successfully');
+
+  // Verify all responses have unique seqNumber from 1 to 25
+  const seqNumbers = results.map(r => r.seqNumber).sort((a,b) => a - b);
+  for (let i = 1; i <= count; i++) {
+    assert.equal(seqNumbers[i - 1], i, `Sequential seqNumber ${i} assigned without gap or duplicate`);
+  }
+
+  // Fetch report and verify count and ordering
+  const repRes = await fetch(`${base}/api/reports/${sId}`, {
+    headers: { Cookie: adminAuth.cookie },
+  });
+  assert.equal(repRes.status, 200);
+  const repData = await repRes.json();
+  assert.equal(repData.completed, count, 'Report confirms all responses saved');
+  assert.equal(repData.responses.length, count);
+
+  // Verify Excel export contains all sequential responses
+  const expRes = await fetch(`${base}/api/export/${sId}?format=excel`, {
+    headers: { Cookie: adminAuth.cookie },
+  });
+  assert.equal(expRes.status, 200);
+  const expHtml = await expRes.text();
+  for (let i = 1; i <= count; i++) {
+    assert.ok(expHtml.includes(`Respondent N${i}`), `Excel export includes Respondent N${i}`);
+  }
+});
