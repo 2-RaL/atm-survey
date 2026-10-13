@@ -121,6 +121,10 @@ const TEXT_RULES=[
   {id:'min_words',label:'Minimum söz sayı (Geniş rəy və təkliflər üçün)'}
 ];
 
+const DEMO_IMG_A = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="100%" height="100%" fill="%23e0e7ff"/><circle cx="160" cy="75" r="35" fill="%236366f1"/><text x="160" y="83" fill="%23ffffff" font-family="sans-serif" font-size="22" font-weight="bold" text-anchor="middle">A</text><text x="160" y="140" fill="%234338ca" font-family="sans-serif" font-size="14" font-weight="600" text-anchor="middle">Dizayn Variantı A</text></svg>';
+const DEMO_IMG_B = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="100%" height="100%" fill="%23fef3c7"/><circle cx="160" cy="75" r="35" fill="%23f59e0b"/><text x="160" y="83" fill="%23ffffff" font-family="sans-serif" font-size="22" font-weight="bold" text-anchor="middle">B</text><text x="160" y="140" fill="%23b45309" font-family="sans-serif" font-size="14" font-weight="600" text-anchor="middle">Dizayn Variantı B</text></svg>';
+const DEMO_IMG_C = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="100%" height="100%" fill="%23dcfce7"/><circle cx="160" cy="75" r="35" fill="%2310b981"/><text x="160" y="83" fill="%23ffffff" font-family="sans-serif" font-size="22" font-weight="bold" text-anchor="middle">C</text><text x="160" y="140" fill="%23047857" font-family="sans-serif" font-size="14" font-weight="600" text-anchor="middle">Dizayn Variantı C</text></svg>';
+
 function getQuestionUnit(q){
   if(!q?.settings)return '';
   const u=q.settings.unit;
@@ -1109,38 +1113,287 @@ function settingsPage(){
     </div>`;
 }
 
+// ——— FORM DESIGNER DRAFT & LIVE SYNC HELPERS ———
+function saveBuilderDraft(){
+  if(!state.builder||!state.builder.id)return;
+  try{
+    const bId=state.builder.id;
+    const payload={
+      builder:state.builder,
+      builderQ:state.builderQ,
+      builderSection:state.builderSection,
+      savedAt:Date.now()
+    };
+    localStorage.setItem('sp_builder_draft_'+bId,JSON.stringify(payload));
+  }catch{}
+}
+
+function clearBuilderDraft(surveyId){
+  const id=surveyId||state.builder?.id;
+  if(id){
+    try{localStorage.removeItem('sp_builder_draft_'+id);}catch{}
+  }
+}
+
+function restoreBuilderDraft(survey){
+  if(!survey||!survey.id)return null;
+  try{
+    const raw=localStorage.getItem('sp_builder_draft_'+survey.id);
+    if(!raw)return null;
+    const data=JSON.parse(raw);
+    if(data&&data.builder&&data.builder.id===survey.id){
+      return data;
+    }
+  }catch{}
+  return null;
+}
+
+function syncBuilderLive(q){
+  if(!q)return;
+  const card=document.querySelector(`.q-card[data-id="${q.id}"]`);
+  if(card){
+    const titleEl=card.querySelector('.q-title');
+    if(titleEl){
+      titleEl.innerHTML=`${esc(q.title||'Adsız sual')} ${q.required?'<span class="required">*</span>':''}<div class="q-mini-type">${typeLabel(q.type)}${q.condition?' · Şərt tətbiq edilib':''}</div>`;
+    }
+    const previewEl=card.querySelector('.q-preview');
+    if(previewEl){
+      previewEl.innerHTML=questionMini(q);
+    }
+  }
+  const topEyebrow=document.querySelector('.builder-top .eyebrow');
+  if(topEyebrow){
+    topEyebrow.innerHTML=`SORĞU KONSTRUKTORU · <span style="color:var(--accent-orange,#ea580c);font-weight:600">QARALAMA YADDA SAXLANILDI (LOKAL)</span>`;
+  }
+  saveBuilderDraft();
+}
+
 // ——— FORM DESIGNER ———
 function newQuestion(type,sectionId){
-  const question={id:mkId(),sectionId,type,title:'Yeni sual',description:'',required:!['paragraph','file','consent'].includes(type),options:[],rows:[],columns:[],settings:{min:0,max:10},condition:null};
-  if(['single','multiple','dropdown','image_choice','ranking','bestworst','text_ab','image_ab'].includes(type))question.options=['Variant 1','Variant 2','Variant 3'].map(label=>({id:mkId(),label,image:''}));
-  if(type==='fill_blank'){
-    question.title='Əkin və məhsuldarlıq məlumatları';
-    question.options=[
-      {id:mkId(),label:'Yaz zamanı ____ kq kartof əkmişəm.',image:''},
-      {id:mkId(),label:'Payızda ____ kq məhsul yığmışam.',image:''}
-    ];
+  const question={
+    id:mkId(),
+    sectionId,
+    type,
+    title:'Yeni sual',
+    description:'',
+    required:!['paragraph','file','consent'].includes(type),
+    options:[],
+    rows:[],
+    columns:[],
+    settings:{min:0,max:10},
+    condition:null
+  };
+
+  switch(type){
+    case'single':
+      question.title='Fəaliyyət növünüzü və ya əsas kateqoriyanızı seçin';
+      question.options=['Kənd təsərrüfatı və fermerlik','Emal sənayesi və istehsalat','Ticarət və xidmət sahəsi','Digər fəaliyyət'].map(label=>({id:mkId(),label,image:''}));
+      break;
+    case'multiple':
+      question.title='Təsərrüfatınızda hansı bitki və ya məhsulları yetişdirirsiniz?';
+      question.description='Bir neçə variant seçə bilərsiniz.';
+      question.options=['Taxıl və dənli bitkilər','Kartof və tərəvəz','Meyvə bağları','Texniki və yem bitkiləri','İstixana məhsulları'].map(label=>({id:mkId(),label,image:''}));
+      question.settings={maxSelect:0};
+      break;
+    case'dropdown':
+      question.title='Fəaliyyət göstərdiyiniz iqtisadi rayonu seçin';
+      question.description='Siyahıdan müvafiq regionu seçin.';
+      question.options=['Abşeron-Xızı','Gəncə-Daşkəsən','Qazax-Tovuz','Quba-Xaçmaz','Lənkəran-Astara','Mərkəzi Aran','Mil-Muğan','Şəki-Zaqatala','Şirvan-Salyan','Qarabağ','Şərqi Zəngəzur','Naxçıvan MR'].map(label=>({id:mkId(),label,image:''}));
+      break;
+    case'yesno':
+      question.title='Cari ildə dövlət subsidiyası və ya aqrar kreditdən istifadə etmisinizmi?';
+      question.options=[{id:mkId(),label:'Bəli',image:''},{id:mkId(),label:'Xeyr',image:''}];
+      break;
+    case'image_choice':
+      question.title='Məhsul üçün ən münasib qablaşdırma və ya etiket dizaynını seçin';
+      question.description='Təqdim olunan vizual variantlardan birinə klikləyin.';
+      question.options=[
+        {id:mkId(),label:'Variant A (Klassik qablaşdırma)',image:DEMO_IMG_A},
+        {id:mkId(),label:'Variant B (Ekoloji kraft qablaşdırma)',image:DEMO_IMG_B},
+        {id:mkId(),label:'Variant C (Premium şüşə qablaşdırma)',image:DEMO_IMG_C}
+      ];
+      break;
+    case'rating':
+      question.title='Göstərilən xidmətin ümumi keyfiyyət səviyyəsini qiymətləndirin';
+      question.description='1 - Çox zəif, 10 - Əla səviyyədə';
+      question.settings={min:1,max:10};
+      break;
+    case'stars':
+      question.title='Mütəxəssis və aqronom məsləhətinin keyfiyyətini ulduzlarla qiymətləndirin';
+      question.description='5 ulduz ən yüksək qiymətləndirmədir.';
+      question.settings={min:1,max:5};
+      break;
+    case'slider':
+      question.title='Layihənin gözləntilərinizi qarşılama dərəcəsi (0-100%)';
+      question.description='Dəyəri təyin etmək üçün slayderi sürüşdürün.';
+      question.settings={min:0,max:100,step:5,unit:'percent'};
+      break;
+    case'ranking':
+      question.title='Məhsul seçimində sizin üçün ən vacib olan amilləri prioritetə görə sıralayın';
+      question.description='Variantları əhəmiyyət sırasına uyğun yerləşdirin.';
+      question.options=['Yüksək keyfiyyət və təbiilik','Münasib qiymət','Sürətli çatdırılma və əlçatanlıq','Brendə olan etibar'].map(label=>({id:mkId(),label,image:''}));
+      break;
+    case'bestworst':
+      question.title='Təklif olunan xidmətlər arasında ən faydalı və ən az ehtiyac duyulanı seçin';
+      question.description='Hər meyar üzrə ən müsbət və ən mənfi xüsusiyyəti qeyd edin.';
+      question.options=['Subsidiyaların elektron verilməsi','Aqrotexniki treninqlər','Məhsulun birbaşa satış yarmarkaları','Güzəştli sığorta mexanizmi'].map(label=>({id:mkId(),label,image:''}));
+      break;
+    case'matrix':
+      question.title='Aşağıdakı sahələr üzrə xidmət səviyyəsini qiymətləndirin';
+      question.rows=['Müraciətlərə baxılma sürəti','Əməkdaşların nəzakəti və peşəkarlığı','İnformasiyanın aydınlığı','Texniki dəstək xidməti'];
+      question.columns=['Qənaətbəxş deyil','Orta','Yaxşı','Əla'];
+      break;
+    case'matrix_multi':
+      question.title='Hər bir fəaliyyət dövründə tətbiq etdiyiniz aqrotexniki tədbirlər';
+      question.rows=['Yaz səpini dövrü','Yay suvarma dövrü','Payız məhsul yığımı'];
+      question.columns=['Mineral gübrə','Üzvi gübrə','Zərərvericilərə qarşı dərmanlama','Mexanikləşdirilmiş emal'];
+      break;
+    case'matrix_dropdown':
+      question.title='Təsərrüfat istiqamətləri üzrə illik məhsuldarlıq dinamikası';
+      question.rows=['Dənli bitkilər','Kartof və tərəvəzçilik','Meyvəçilik və üzümçülük'];
+      question.columns=['Artıb','Dəyişməyib','Azalıb','Məlumat yoxdur'];
+      break;
+    case'matrix_text':
+      question.title='Hansı sort kartoflardan əkmisiniz və sahələr üzrə həcmi (kq)?';
+      question.description='Birinci sütunda kartof sortları, digər sütunlarda müvafiq intervallar üzrə həcmi daxil edin.';
+      question.rows=['Bakı kartofu','Cəlilabad kartofu','Gədəbəy kartofu','Tovuz kartofu'];
+      question.columns=['0-100','100-200','200-300','300-dən çox'];
+      break;
+    case'nps':
+      question.title='Mərkəzimizin xidmətlərini həmkarlarınıza və ya yaxınlarınıza tövsiyə etmə ehtimalınız nə qədərdir?';
+      question.description='0 - Qətiyyən tövsiyə etmərəm, 10 - Mütləq tövsiyə edərəm';
+      question.settings={min:0,max:10};
+      break;
+    case'likert':
+      question.title='"Elektron aqrar sistemlər sənədləşmə işlərini əhəmiyyətli dərəcədə asanlaşdırır" fikri ilə nə dərəcədə razısınız?';
+      question.settings={min:1,max:5};
+      question.options=['Tamamilə razı deyiləm','Razı deyiləm','Neytral / Qərarsızam','Razıyam','Tamamilə razıyam'].map(label=>({id:mkId(),label,image:''}));
+      break;
+    case'short_text':
+      question.title='Təsərrüfatınızın və ya müəssisənizin rəsmi adını qeyd edin';
+      question.description='Məsələn: "Bərəkət" MMC və ya Fərdi Sahibkar Əliyev';
+      question.settings={textRule:'none'};
+      break;
+    case'paragraph':
+      question.title='Xidmət keyfiyyətinin artırılması ilə bağlı təklif və iradlarınızı ətraflı qeyd edin';
+      question.description='Fikirlərinizi sərbəst şəkildə yazın.';
+      question.required=false;
+      question.settings={textRule:'none'};
+      break;
+    case'fill_blank':
+      question.title='Əkin və məhsuldarlıq göstəriciləri üzrə boşluqları doldurun';
+      question.description='Cümlədəki boşluq sahələrinə müvafiq rəqəmləri və ya məlumatları daxil edin.';
+      question.options=[
+        {id:mkId(),label:'Yaz zamanı ____ kq kartof əkmişəm.',image:''},
+        {id:mkId(),label:'Payızda ümumi sahədən ____ kq məhsul yığmışam.',image:''},
+        {id:mkId(),label:'Məhsulun ____ faizini bazarda satışa çıxarmışam.',image:''}
+      ];
+      break;
+    case'number':
+      question.title='Təsərrüfatınızda çalışan ümumi işçilərin (əməkdaşların) sayı';
+      question.description='Yalnız tam rəqəm daxil edin.';
+      question.settings={min:1,max:1000,step:1,unit:'none'};
+      break;
+    case'currency':
+      question.title='Cari il üzrə ümumi subsidiyanın və ya gəlirin məbləği (AZN ilə)';
+      question.description='Məbləği manatla daxil edin.';
+      question.settings={min:0,max:1000000,step:1,unit:'azn'};
+      break;
+    case'percentage':
+      question.title='Damcılı və qənaətcil suvarma sisteminin əkin sahəsində tətbiq olunma faizi';
+      question.description='0 ilə 100 arasında faiz göstəricisi daxil edin.';
+      question.settings={min:0,max:100,step:1,unit:'percent'};
+      break;
+    case'multitext':
+      question.title='Təsərrüfat rəhbərinin əsas məsuliyyət sahələri və əlaqəli şəxslər';
+      question.rows=['Aqronomun adı və təcrübəsi','Mühasibin adı və əlaqə vasitəsi','Anbardarın adı və anbar ünvanı'];
+      break;
+    case'name':
+      question.title='Respondent və ya təsərrüfat rəhbərinin adı, soyadı və ata adı';
+      question.description='Şəxsiyyət vəsiqəsinə uyğun tam qeyd edin.';
+      question.settings={textRule:'capitalized'};
+      break;
+    case'email':
+      question.title='Rəsmi bildirişlər və əlaqə üçün e-poçt ünvanınız';
+      question.description='Nümunə: ad.soyad@domain.az';
+      question.settings={textRule:'email'};
+      break;
+    case'phone':
+      question.title='Əlaqə üçün mobil telefon nömrəniz';
+      question.description='Nümunə: +994 50 123 45 67';
+      question.settings={textRule:'phone'};
+      break;
+    case'address':
+      question.title='Təsərrüfatın və ya istehsalat sahəsinin yerləşdiyi dəqiq ünvan';
+      question.description='Rayon, qəsəbə/kənd, küçə və torpaq sahəsinin təyinatı.';
+      question.settings={textRule:'none'};
+      break;
+    case'date':
+      question.title='Əkinin başlandığı və ya müqavilənin bağlandığı tarix';
+      question.description='Təqvimdən müvafiq tarixi seçin.';
+      break;
+    case'time':
+      question.title='Görüş və ya monitorinqin keçirilməsi üçün ən münasib saat';
+      question.description='İş saatları daxilində vaxt seçin.';
+      break;
+    case'datetime':
+      question.title='Növbəti sahə monitorinqinin planlaşdırılan dəqiq tarixi və vaxtı';
+      question.description='Tarix və saatı birlikdə qeyd edin.';
+      break;
+    case'file':
+      question.title='Torpaq çıxarışı, təhvil aktı və ya tələb olunan sənədin surətini yükləyin';
+      question.description='Qəbul olunan formatlar: PDF, JPG, PNG və ya DOCX (Maksimum 2 MB).';
+      question.required=false;
+      break;
+    case'consent':
+      question.title='Fərdi məlumatların "Fərdi məlumatlar haqqında" AR Qanununa uyğun emalına razılıq verirsinizmi?';
+      question.description='Sorğuda iştirak etməklə məlumatlarınızın aqrar təhlillərdə istifadəsinə razılıq vermiş olursunuz.';
+      question.required=true;
+      break;
+    case'text_ab':
+      question.title='Yeni aqrar maarifləndirmə şüarının qiymətləndirilməsi (A/B Testi)';
+      question.description='Sizə təsadüfi qaydada təqdim olunan mətni qiymətləndirin və uyğunluğunu bildirin.';
+      question.options=[
+        {id:mkId(),label:'Variant A: "Kənd təsərrüfatında innovativ texnologiyalar və bol məhsul"',image:''},
+        {id:mkId(),label:'Variant B: "Torpağın bərəkəti, zəhmətin qüdrəti: gələcəyə güvənlə addımla"',image:''}
+      ];
+      break;
+    case'image_ab':
+      question.title='Məhsulun yeni vizual dizayn və etiket variantının testi (A/B Testi)';
+      question.description='Təqdim olunan vizual variantı nəzərdən keçirin və təsdiq edib-etmədiyinizi qeyd edin.';
+      question.options=[
+        {id:mkId(),label:'Dizayn A (Müasir minimal üslub)',image:DEMO_IMG_A},
+        {id:mkId(),label:'Dizayn B (Ənənəvi milli ornamentli üslub)',image:DEMO_IMG_B}
+      ];
+      break;
+    default:
+      question.title=typeLabel(type)||'Yeni sual';
+      question.options=['Variant 1','Variant 2','Variant 3'].map(label=>({id:mkId(),label,image:''}));
   }
-  if(type==='matrix_text'){
-    question.title='Hansı sort kartoflardan əkmisiniz?';
-    question.rows=['Bakı kartofu','Cəlilabad kartofu','Gədəbəy kartofu'];
-    question.columns=['0-100','100-200','200-300'];
-  } else if(type.startsWith('matrix')){question.rows=['Meyar 1','Meyar 2','Meyar 3'];question.columns=['Pis','Orta','Yaxşı','Əla'];}
-  if(type==='multitext')question.rows=['Sahə 1','Sahə 2'];
-  if(['rating','stars','likert'].includes(type)){question.settings={min:1,max:5};}
-  if(type==='nps')question.settings={min:0,max:10};
-  if(type==='percentage')question.settings={min:0,max:100};
-  if(type==='slider')question.settings={min:0,max:10,step:1};
-  if(type==='consent')question.title='Məlumatların emalına razılıq verirsinizmi?';
+
   return question;
 }
 
 function makeBuilder(survey){
-  state.builder=JSON.parse(JSON.stringify(survey));
-  state.builderQ=survey.questions[0]?.id||null;
-  state.builderSection=survey.sections[0]?.id||null;
-  state.dirty=false;state.preview=false;state.propOpen=false;
-  state.page='builder';location.hash='#/builder';
-  render();window.scrollTo(0,0);
+  const draft=restoreBuilderDraft(survey);
+  if(draft&&draft.builder){
+    state.builder=draft.builder;
+    state.builderQ=draft.builderQ||draft.builder.questions[0]?.id||null;
+    state.builderSection=draft.builderSection||draft.builder.sections[0]?.id||null;
+    state.dirty=true;
+    notify('Yadda saxlanmamış qaralama bərpa edildi.');
+  } else {
+    state.builder=JSON.parse(JSON.stringify(survey));
+    state.builderQ=survey.questions[0]?.id||null;
+    state.builderSection=survey.sections[0]?.id||null;
+    state.dirty=false;
+  }
+  state.preview=false;
+  state.propOpen=false;
+  state.page='builder';
+  location.hash='#/builder';
+  render();
+  window.scrollTo(0,0);
 }
 
 function builderPage(){
@@ -1223,7 +1476,33 @@ function builderPage(){
 
 function questionMini(q){
   const opt=q.options||[];
-  if(['single','multiple','dropdown','yesno','image_choice','text_ab','image_ab'].includes(q.type))return `<div class="fake-options">${(q.type==='yesno'?['Bəli','Xeyr']:opt.map(x=>x.label)).slice(0,4).map(t=>`<span class="fake-option">◯ ${esc(t)}</span>`).join('')||'Variant əlavə edin'}</div>`;
+  if(q.type==='image_choice') {
+    return `<div class="mini-img-options">${opt.slice(0,4).map(o=>`
+      <span class="mini-img-opt">
+        ${o.image?`<img src="${esc(o.image)}" class="mini-thumb" alt="${esc(o.label)}">`:'<span class="mini-img-placeholder">🖼️</span>'}
+        <small>${esc(o.label)}</small>
+      </span>
+    `).join('')}</div>`;
+  }
+  if(q.type==='image_ab') {
+    return `<div class="mini-ab-box">
+      <div class="mini-ab-badge">🖼️ ŞƏKİL A/B TESTİ (${opt.length} vizual variant)</div>
+      <div class="mini-img-options">${opt.slice(0,2).map(o=>`
+        <span class="mini-img-opt">
+          ${o.image?`<img src="${esc(o.image)}" class="mini-thumb" alt="${esc(o.label)}">`:'<span class="mini-img-placeholder">🖼️</span>'}
+          <small>${esc(o.label)}</small>
+        </span>
+      `).join('')}</div>
+    </div>`;
+  }
+  if(q.type==='text_ab') {
+    return `<div class="mini-ab-box">
+      <div class="mini-ab-badge">📝 MƏTN A/B TESTİ (${opt.length} mətn variantı)</div>
+      <div class="fake-options">${opt.slice(0,2).map(x=>`<span class="fake-option">💬 ${esc(x.label)}</span>`).join('')}</div>
+    </div>`;
+  }
+  if(['single','multiple','dropdown','yesno'].includes(q.type))return `<div class="fake-options">${(q.type==='yesno'?['Bəli','Xeyr']:opt.map(x=>x.label)).slice(0,4).map(t=>`<span class="fake-option">◯ ${esc(t)}</span>`).join('')||'Variant əlavə edin'}</div>`;
+  if(['ranking','bestworst'].includes(q.type))return `<div class="fake-options">${opt.slice(0,4).map((x,i)=>`<span class="fake-option">${i+1}. ${esc(x.label)}</span>`).join('')||'Variant əlavə edin'}</div>`;
   if(['rating','stars','slider','nps','likert'].includes(q.type))return `<div class="fake-options">${Array.from({length:5},(_,i)=>`<span class="fake-option">${q.type==='stars'?'☆':i+1}</span>`).join('')}</div>`;
   if(q.type==='fill_blank')return `<div class="fake-options">${(opt.slice(0,2).map(x=>`<span class="fake-option">✍ ${esc(x.label)}</span>`).join(''))||'Cümlə və boşluq əlavə edin'}</div>`;
   if(q.type.startsWith('matrix'))return `${q.rows.length} meyar × ${q.columns.length} ${q.type==='matrix_text'?'daxiletmə xanası':'cavab variantı'}`;
@@ -1257,7 +1536,29 @@ function properties(q){
           ${q.type==='fill_blank'?`<small>Mətn daxilində <b>____</b> (alt xətt) və ya <b>[ ]</b> yazaraq doldurula bilən boşluq sahəsi yarada bilərsiniz. Məsələn: <i>"Yaz zamanı ____ kq kartof əkmişəm."</i></small>`:`<small>İstədiyiniz qədər variant daxil edin.</small>`}
         </div>
         ${['image_choice','image_ab'].includes(q.type)?`
-          <div class="field"><label>Şəkil URL-ləri (variantlarla eyni ardıcıllıqda)</label><textarea data-builder-field="images" data-qid="${q.id}">${esc(q.options.map(x=>x.image||'').join('\n'))}</textarea></div>
+          <div class="prop-divider"></div>
+          <div class="prop-section-title">${ico('grid',14)} VİZUAL ŞƏKİLLƏRİN İDARƏ EDİLMƏSİ</div>
+          <p class="note" style="margin:4px 0 10px;font-size:11.5px">Hər bir variant üçün kompüterdən birbaşa şəkil yükləyə və ya şəkil linki daxil edə bilərsiniz.</p>
+          <div class="opt-images-list">
+            ${q.options.map((opt,optIdx)=>`
+              <div class="opt-image-row" style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg-subtle,#f8fafc);border:1px solid var(--border,#e2e8f0);border-radius:8px;margin-bottom:8px">
+                <div class="opt-image-thumb-wrap" style="width:48px;height:48px;flex-shrink:0;background:#eee;border-radius:6px;overflow:hidden;display:flex;align-items:center;justify-content:center;border:1px solid #cbd5e1">
+                  ${opt.image?`<img src="${esc(opt.image)}" style="width:100%;height:100%;object-fit:cover" alt="${esc(opt.label)}">`:`<span style="font-size:18px;opacity:0.5">🖼️</span>`}
+                </div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-weight:600;font-size:12.5px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(opt.label||`Variant ${optIdx+1}`)}</div>
+                  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                    <label class="btn btn-sm" style="cursor:pointer;padding:3px 8px;font-size:11px;margin:0;display:inline-flex;align-items:center;gap:4px">
+                      ${ico('upload',12)} Kompüterdən seç
+                      <input type="file" accept="image/*" class="opt-img-file-input" data-qid="${q.id}" data-opt-idx="${optIdx}" style="display:none">
+                    </label>
+                    <input type="text" class="opt-img-url-input" data-qid="${q.id}" data-opt-idx="${optIdx}" value="${esc(opt.image||'')}" placeholder="və ya şəkil URL-i" style="flex:1;min-width:100px;padding:3px 6px;font-size:11.5px;height:28px">
+                    ${opt.image?`<button type="button" class="btn btn-sm btn-icon" data-action="clear-opt-img" data-qid="${q.id}" data-opt-idx="${optIdx}" title="Şəkli sil" style="height:28px;width:28px">${ico('trash',12)}</button>`:''}
+                  </div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
         `:''}
       `:''}
       ${withRows?`
@@ -1427,13 +1728,30 @@ function renderAnswer(q,answers={},preview=false){
 
   if(['single','multiple','yesno','image_choice'].includes(type))html=options(type==='multiple',type==='image_choice');
   else if(type==='dropdown')html=`<select class="answer-input" data-answer="${questionId}" ${disabled}><option value="">Variant seçin...</option>${opts.map(o=>`<option value="${esc(o.label)}" ${checked(o.label)?'selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
-  else if(['text_ab','image_ab'].includes(type)){
+  else if(type==='image_ab'){
+    const variant=variantFor(q,'seed');
+    const imgSrc=variant?.image||DEMO_IMG_A;
+    html=`
+      <div class="ab-card-visual" style="margin:0 0 12px;padding:14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;text-align:center">
+        <div style="display:inline-block;padding:2px 10px;font-size:11px;font-weight:700;color:#6366f1;background:#eef2ff;border-radius:12px;margin-bottom:10px">🖼️ A/B VİZUAL DİZAYN VƏ ETİKET TESTİ</div>
+        <div style="margin:8px 0"><img src="${esc(imgSrc)}" alt="${esc(variant?.label||'Dizayn')}" style="max-width:100%;max-height:220px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.08);object-fit:contain"></div>
+        <div style="font-weight:600;font-size:13.5px;color:#1e293b;margin-top:6px">${esc(variant?.label||'Vizual Variant')}</div>
+      </div>
+      <div class="choice-grid">
+        <label class="choice-card ${(val?.answer==='Bəli'||checked('Bəli'))?'selected':''}"><input type="radio" name="ans_${questionId}" data-answer="${questionId}" value="Bəli" ${(val?.answer==='Bəli'||checked('Bəli'))?'checked':''} ${disabled}> Bəyəndim (Müsbət)</label>
+        <label class="choice-card ${(val?.answer==='Xeyr'||checked('Xeyr'))?'selected':''}"><input type="radio" name="ans_${questionId}" data-answer="${questionId}" value="Xeyr" ${(val?.answer==='Xeyr'||checked('Xeyr'))?'checked':''} ${disabled}> Bəyənmədim (Mənfi)</label>
+      </div>`;
+  }
+  else if(type==='text_ab'){
     const variant=variantFor(q,'seed');
     html=`
-      <div class="highlight-box" style="margin:0 0 10px">${type==='image_ab'&&variant?.image?`<img src="${esc(variant.image)}" alt="Vizual variant" style="max-width:100%;max-height:180px">`:esc(variant?.label||'Variant yoxdur')}</div>
+      <div class="ab-card-text" style="margin:0 0 12px;padding:16px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px">
+        <div style="display:inline-block;padding:2px 10px;font-size:11px;font-weight:700;color:#059669;background:#ecfdf5;border-radius:12px;margin-bottom:8px">📝 A/B MƏTN VƏ ŞÜAR TESTİ</div>
+        <div style="font-size:14.5px;font-weight:500;line-height:1.5;color:#1e293b;border-left:3px solid #10b981;padding-left:12px;margin:6px 0">"${esc(variant?.label||'Mətn variantı yoxdur')}"</div>
+      </div>
       <div class="choice-grid">
-        <label class="choice-card ${(val?.answer==='Bəli'||checked('Bəli'))?'selected':''}"><input type="radio" name="ans_${questionId}" data-answer="${questionId}" value="Bəli" ${(val?.answer==='Bəli'||checked('Bəli'))?'checked':''} ${disabled}> Bəli</label>
-        <label class="choice-card ${(val?.answer==='Xeyr'||checked('Xeyr'))?'selected':''}"><input type="radio" name="ans_${questionId}" data-answer="${questionId}" value="Xeyr" ${(val?.answer==='Xeyr'||checked('Xeyr'))?'checked':''} ${disabled}> Xeyr</label>
+        <label class="choice-card ${(val?.answer==='Bəli'||checked('Bəli'))?'selected':''}"><input type="radio" name="ans_${questionId}" data-answer="${questionId}" value="Bəli" ${(val?.answer==='Bəli'||checked('Bəli'))?'checked':''} ${disabled}> Uyğundur (Bəyəndim)</label>
+        <label class="choice-card ${(val?.answer==='Xeyr'||checked('Xeyr'))?'selected':''}"><input type="radio" name="ans_${questionId}" data-answer="${questionId}" value="Xeyr" ${(val?.answer==='Xeyr'||checked('Xeyr'))?'checked':''} ${disabled}> Uyğun deyil (Bəyənmədim)</label>
       </div>`;
   }
   else if(['rating','nps','likert'].includes(type))html=`<div class="rating-group">${Array.from({length:Math.min(21,max-min+1)},(_,i)=>min+i).map(n=>`<button type="button" class="rating-btn ${Number(val)===n?'active':''}" data-action="numeric-answer" data-qid="${questionId}" data-value="${n}" ${disabled}>${n}</button>`).join('')}</div>${type==='nps'?'<div class="range-row mt12" style="max-width:445px"><span>Heç tövsiyə etmərəm</span><span>Mütləq tövsiyə edərəm</span></div>':''}`;
@@ -2345,6 +2663,7 @@ function updateBuilderField(el){
     default:q[key]=v;
   }
   state.dirty=true;
+  syncBuilderLive(q);
 }
 
 async function dispatchAction(el){
@@ -2413,7 +2732,16 @@ async function dispatchAction(el){
       }
       case'export-audit-excel':window.location.href='/api/export-audit?format=excel';notify('Fəaliyyət tarixçəsinin Excel ixracı başlanıldı.');break;
       case'close-modal':closeModal();break;
-      case'save-builder':{const r=await api('/api/surveys/'+state.builder.id,state.builder,'PUT');state.builder=r.survey;state.dirty=false;await refresh();render();notify('Sorğu yadda saxlanıldı.');break;}
+      case'save-builder':{
+        const r=await api('/api/surveys/'+state.builder.id,state.builder,'PUT');
+        state.builder=r.survey;
+        state.dirty=false;
+        clearBuilderDraft(state.builder.id);
+        await refresh();
+        render();
+        notify('Sorğu uğurla yadda saxlanıldı və təsdiqləndi.');
+        break;
+      }
       case'add-question':{
         const s=state.builder;
         const q=newQuestion(el.dataset.type,el.dataset.section||state.builderSection||s.sections[0]?.id);
@@ -2423,6 +2751,7 @@ async function dispatchAction(el){
         state.preview=false;
         state.propOpen=true;
         state.dirty=true;
+        saveBuilderDraft();
         render();
         requestAnimationFrame(()=>{
           const newCard=$(`.q-card[data-id="${q.id}"]`);
@@ -2447,12 +2776,25 @@ async function dispatchAction(el){
         render();
         break;
       }
-      case'clone-question':{const i=state.builder.questions.findIndex(q=>q.id===id);const clone=structuredClone(state.builder.questions[i]);clone.id=mkId();clone.title+=' (surət)';state.builder.questions.splice(i+1,0,clone);state.builderQ=clone.id;state.propOpen=true;state.dirty=true;render();break;}
-      case'delete-question':if(confirm('Bu sualı silmək istəyirsiniz?')){state.builder.questions=state.builder.questions.filter(q=>q.id!==id);state.builderQ=state.builder.questions[0]?.id||null;state.dirty=true;render();}break;
-      case'move-question':{const s=state.builder,idx=s.questions.findIndex(q=>q.id===id),section=s.questions[idx].sectionId,matching=s.questions.map((q,i)=>q.sectionId===section?i:-1).filter(i=>i>=0),pos=matching.indexOf(idx),target=matching[pos+Number(el.dataset.direction)];if(target!==undefined){[s.questions[idx],s.questions[target]]=[s.questions[target],s.questions[idx]];state.dirty=true;render();}break;}
+      case'clone-question':{const i=state.builder.questions.findIndex(q=>q.id===id);const clone=structuredClone(state.builder.questions[i]);clone.id=mkId();clone.title+=' (surət)';state.builder.questions.splice(i+1,0,clone);state.builderQ=clone.id;state.propOpen=true;state.dirty=true;saveBuilderDraft();render();break;}
+      case'delete-question':if(confirm('Bu sualı silmək istəyirsiniz?')){state.builder.questions=state.builder.questions.filter(q=>q.id!==id);state.builderQ=state.builder.questions[0]?.id||null;state.dirty=true;saveBuilderDraft();render();}break;
+      case'move-question':{const s=state.builder,idx=s.questions.findIndex(q=>q.id===id),section=s.questions[idx].sectionId,matching=s.questions.map((q,i)=>q.sectionId===section?i:-1).filter(i=>i>=0),pos=matching.indexOf(idx),target=matching[pos+Number(el.dataset.direction)];if(target!==undefined){[s.questions[idx],s.questions[target]]=[s.questions[target],s.questions[idx]];state.dirty=true;saveBuilderDraft();render();}break;}
+      case'clear-opt-img':{
+        const q=findBuilderQ(el.dataset.qid);
+        const optIdx=Number(el.dataset.optIdx);
+        if(q&&q.options&&q.options[optIdx]){
+          q.options[optIdx].image='';
+          state.dirty=true;
+          syncBuilderLive(q);
+          const propPanel=$('#property-panel');
+          if(propPanel)propPanel.innerHTML=properties(q);
+          notify('Şəkil silindi.');
+        }
+        break;
+      }
       case'add-section':sectionModal();break;
       case'edit-section':sectionModal(id);break;
-      case'delete-section':{const s=state.builder;if(!confirm('Bölmə silinəcək. Bu bölmədəki suallar ilk bölməyə köçürüləcək.'))break;s.sections=s.sections.filter(x=>x.id!==id);s.questions.filter(q=>q.sectionId===id).forEach(q=>q.sectionId=s.sections[0].id);state.builderSection=s.sections[0].id;state.dirty=true;render();break;}
+      case'delete-section':{const s=state.builder;if(!confirm('Bölmə silinəcək. Bu bölmədəki suallar ilk bölməyə köçürüləcək.'))break;s.sections=s.sections.filter(x=>x.id!==id);s.questions.filter(q=>q.sectionId===id).forEach(q=>q.sectionId=s.sections[0].id);state.builderSection=s.sections[0].id;state.dirty=true;saveBuilderDraft();render();break;}
       case'open-properties':state.propOpen=true;render();break;
       case'close-properties':state.propOpen=false;render();break;
       case'survey-settings':surveySettings();break;
@@ -2639,6 +2981,21 @@ document.addEventListener('submit',async e=>{
 document.addEventListener('input',e=>{
   const el=e.target;
   if(el.dataset.builderField!==undefined){updateBuilderField(el);return;}
+  if(el.classList.contains('opt-img-url-input')){
+    const q=findBuilderQ(el.dataset.qid);
+    const optIdx=Number(el.dataset.optIdx);
+    if(q&&q.options&&q.options[optIdx]){
+      q.options[optIdx].image=el.value.trim();
+      state.dirty=true;
+      syncBuilderLive(q);
+      const row=el.closest('.opt-image-row');
+      const thumbWrap=row?.querySelector('.opt-image-thumb-wrap');
+      if(thumbWrap){
+        thumbWrap.innerHTML=q.options[optIdx].image?`<img src="${esc(q.options[optIdx].image)}" style="width:100%;height:100%;object-fit:cover" alt="Thumb">`:`<span style="font-size:18px;opacity:0.5">🖼️</span>`;
+      }
+    }
+    return;
+  }
   if(el.id==='global-search'||el.dataset.localSearch!==undefined){
     state.filter=el.value;
     clearTimeout(searchDebounce);
@@ -2658,6 +3015,32 @@ document.addEventListener('input',e=>{
 
 document.addEventListener('change',async e=>{
   const el=e.target;
+  if(el.classList.contains('opt-img-file-input')){
+    try{
+      const file=el.files?.[0];
+      if(!file)return;
+      if(file.size>2*1024*1024)throw new Error('Şəkil 2 MB-dan böyük ola bilməz.');
+      if(!file.type.startsWith('image/'))throw new Error('Yalnız şəkil faylları (JPG, PNG, WebP) qəbul edilir.');
+      const data=await new Promise((resolve,reject)=>{
+        const reader=new FileReader();
+        reader.onload=()=>resolve(String(reader.result).split(',')[1]);
+        reader.onerror=()=>reject(new Error('Fayl oxuna bilmədi.'));
+        reader.readAsDataURL(file);
+      });
+      const result=await api('/api/uploads',{name:file.name,mime:file.type,data});
+      const q=findBuilderQ(el.dataset.qid);
+      const optIdx=Number(el.dataset.optIdx);
+      if(q&&q.options&&q.options[optIdx]){
+        q.options[optIdx].image=result.url;
+        state.dirty=true;
+        syncBuilderLive(q);
+        const propPanel=$('#property-panel');
+        if(propPanel)propPanel.innerHTML=properties(q);
+        notify('Şəkil uğurla yükləndi və varianta tətbiq edildi.');
+      }
+    }catch(err){notify(err.message,true);}
+    return;
+  }
   if(el.id==='interview-contact-select'){
     const cId=el.value;
     const contact=state.contacts.find(c=>c.id===cId);
@@ -2738,9 +3121,11 @@ window.addEventListener('online',()=>{notify('İnternet bağlantısı bərpa olu
 window.addEventListener('offline',()=>{notify('İnternet bağlantısı kəsildi. Sorğu məlumatları cihazınızda təhlükəsiz saxlanılır.',true);});
 
 window.addEventListener('beforeunload',e=>{
+  if(state.builder&&state.page==='builder')saveBuilderDraft();
   if(state.interview&&state.page==='interview')saveInterviewDraft();
   if(state.publicSurvey&&state.page==='public_survey')savePublicSurveyDraft(state.publicSurvey.id);
   if(state.dirty&&['builder','interview'].includes(state.page)){e.preventDefault();e.returnValue='';}
 });
 
 init();
+

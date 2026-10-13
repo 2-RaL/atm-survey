@@ -574,6 +574,25 @@ async function readBody(req){let size=0,chunks=[];for await(const chunk of req){
 const statusSet=['pending','in_progress','callback','no_answer','busy','refused','completed'];
 async function api(req,res,url){const p=url.pathname, method=req.method, db=get();
 if(p==='/api/health'&&method==='GET')return respond(res,200,{ok:true,name:'SorğuPro',time:iso()});
+let upM=p.match(/^\/api\/uploads\/([\w-]+)$/);
+if(upM&&method==='GET'){
+ const f=db.uploads.find(x=>x.id===upM[1]);
+ if(f){
+  const file=path.join(dir,'uploads',f.id+f.ext);
+  if(fs.existsSync(file)){
+   const isImg=f.mime&&f.mime.startsWith('image/');
+   if(isImg){
+    res.writeHead(200,{
+     'Content-Type':f.mime,
+     'Content-Disposition':'inline; filename="'+encodeURIComponent(f.name||'image'+f.ext)+'"',
+     'X-Content-Type-Options':'nosniff',
+     'Cache-Control':'public, max-age=86400'
+    });
+    return fs.createReadStream(file).pipe(res);
+   }
+  }
+ }
+}
 let pubM=p.match(/^\/api\/public\/surveys\/([\w-]+)$/);
 if(pubM&&method==='GET'){
  const s=db.surveys.find(x=>x.id===pubM[1]);
@@ -956,7 +975,7 @@ if(p==='/api/login'&&method==='POST'){
  if(p==='/api/users'&&method==='POST'){if(user.role!=='admin')return error(res,403,'Yalnız administrator istifadəçi yarada bilər.');const d=await readBody(req),username=cleanText(d.username,60);if(!/^[a-zA-Z0-9._-]{3,40}$/.test(username))return error(res,400,'İstifadəçi adı 3–40 simvol, latın hərfləri və rəqəmlərdən ibarət olmalıdır.');if(db.users.some(u=>u.username.toLowerCase()===username.toLowerCase()))return error(res,409,'İstifadəçi adı artıq mövcuddur.');if(typeof d.password!=='string'||d.password.length<10)return error(res,400,'Şifrə ən azı 10 simvol olmalıdır.');const role=['admin','editor','agent'].includes(d.role)?d.role:'agent';const u={id:uid(),username,name:cleanText(d.name,100)||username,role,passwordHash:hashPass(d.password),active:true,createdAt:iso()};db.users.push(u);log(req,user,'Yeni istifadəçi yaratdı',u.name+' (@'+u.username+', rol: '+role+')');save();return respond(res,201,{user:redacted(u)});}
  m=p.match(/^\/api\/users\/([\w-]+)$/);if(m&&method==='PUT'){if(user.role!=='admin')return error(res,403,'Yalnız administrator istifadəçi redaktə edə bilər.');const u=db.users.find(x=>x.id===m[1]);if(!u)return error(res,404,'İstifadəçi tapılmadı.');const d=await readBody(req);if('name'in d)u.name=cleanText(d.name,120);if('active'in d){if(u.id===user.id&&!d.active)return error(res,400,'Öz hesabınızı deaktiv edə bilməzsiniz.');u.active=!!d.active;}if('role'in d&&['admin','editor','agent'].includes(d.role)){if(u.id===user.id&&d.role!=='admin')return error(res,400,'Öz admin rolunuzu dəyişə bilməzsiniz.');u.role=d.role;}if('password'in d){if(typeof d.password!=='string'||d.password.length<10)return error(res,400,'Şifrə ən azı 10 simvol olmalıdır.');u.passwordHash=hashPass(d.password);db.sessions=db.sessions.filter(s=>s.userId!==u.id);}log(req,user,'İstifadəçi hesabını yenilədi',u.name+' (@'+u.username+')');save();return respond(res,200,{user:redacted(u)});}
  if(p==='/api/uploads'&&method==='POST'){const d=await readBody(req),mime=String(d.mime||'');const allowed=['image/jpeg','image/png','image/webp','application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document'];if(!allowed.includes(mime))return error(res,400,'Yalnız PNG, JPG, WebP, PDF və DOCX faylları qəbul edilir.');if(typeof d.data!=='string'||d.data.length>3_000_000)return error(res,413,'Fayl maksimum 2 MB olmalıdır.');const raw=Buffer.from(d.data,'base64');if(raw.length>2*1024*1024)return error(res,413,'Fayl maksimum 2 MB olmalıdır.');const ext={'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp','application/pdf':'.pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document':'.docx'}[mime];const upl=path.join(dir,'uploads');fs.mkdirSync(upl,{recursive:true});const id=uid();fs.writeFileSync(path.join(upl,id+ext),raw,{flag:'wx',mode:0o600});db.uploads.push({id,name:cleanText(d.name,200),mime,ext,uploadedBy:user.id,createdAt:iso()});save();return respond(res,201,{id,name:d.name,url:'/api/uploads/'+id});}
- m=p.match(/^\/api\/uploads\/([\w-]+)$/);if(m&&method==='GET'){const f=db.uploads.find(x=>x.id===m[1]);if(!f)return error(res,404,'Fayl tapılmadı.');if(!canManage(user)&&f.uploadedBy!==user.id)return error(res,403,'İcazə yoxdur.');const file=path.join(dir,'uploads',f.id+f.ext);if(!fs.existsSync(file))return error(res,404,'Fayl mövcud deyil.');res.writeHead(200,{'Content-Type':f.mime,'Content-Disposition':'attachment; filename="'+encodeURIComponent(f.name||'file'+f.ext)+'"','X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store'});return fs.createReadStream(file).pipe(res);}
+ m=p.match(/^\/api\/uploads\/([\w-]+)$/);if(m&&method==='GET'){const f=db.uploads.find(x=>x.id===m[1]);if(!f)return error(res,404,'Fayl tapılmadı.');const file=path.join(dir,'uploads',f.id+f.ext);if(!fs.existsSync(file))return error(res,404,'Fayl mövcud deyil.');const isImg=f.mime&&f.mime.startsWith('image/');if(!isImg&&!canManage(user)&&f.uploadedBy!==user.id)return error(res,403,'İcazə yoxdur.');res.writeHead(200,{'Content-Type':f.mime,'Content-Disposition':(isImg?'inline':'attachment')+'; filename="'+encodeURIComponent(f.name||'file'+f.ext)+'"','X-Content-Type-Options':'nosniff','Cache-Control':isImg?'public, max-age=86400':'private, no-store'});return fs.createReadStream(file).pipe(res);}
  if(p==='/api/audit'&&method==='GET'){if(!canManage(user))return error(res,403,'İcazə yoxdur.');return respond(res,200,{audit:db.audit.slice(0,500)});}
  return error(res,404,'API ünvanı mövcud deyil.');}
 const MIME={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.json':'application/json; charset=utf-8'};

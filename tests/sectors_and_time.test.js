@@ -913,6 +913,185 @@ test('New question types: Fill-in-the-blank (Boşluq doldurma) and Matrix Text G
   }
 });
 
+test('Question Library complete audit (all 34 types), Image A/B vs Text A/B tests, real-time draft syncing and inline uploads', async () => {
+  const appJs = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+
+  // 1. Verify all 34 question types exist in TYPES array
+  const expectedTypes = [
+    'single', 'multiple', 'dropdown', 'yesno', 'image_choice',
+    'rating', 'stars', 'slider', 'ranking', 'bestworst', 'matrix', 'matrix_multi', 'matrix_dropdown', 'matrix_text', 'nps', 'likert',
+    'short_text', 'paragraph', 'fill_blank', 'number', 'currency', 'percentage', 'multitext',
+    'name', 'email', 'phone', 'address', 'date', 'time', 'datetime', 'file',
+    'consent', 'text_ab', 'image_ab'
+  ];
+  assert.equal(expectedTypes.length, 34, 'Expected exactly 34 question types in library');
+  expectedTypes.forEach(t => {
+    assert.ok(appJs.includes(`'${t}'`), `Type '${t}' must be registered in app.js`);
+  });
+
+  // 2. Evaluate newQuestion logic from app.js in isolated sandbox
+  const vm = require('vm');
+  const sandbox = {
+    mkId: () => 'test-' + Math.random().toString(36).slice(2),
+    typeLabel: (t) => t,
+    MEASURE_UNITS: [],
+    TEXT_RULES: [],
+    DEMO_IMG_A: 'data:image/svg+xml;demoA',
+    DEMO_IMG_B: 'data:image/svg+xml;demoB',
+    DEMO_IMG_C: 'data:image/svg+xml;demoC',
+    state: { builder: null },
+    document: null,
+    localStorage: null
+  };
+  // Extract newQuestion function from app.js
+  const nqMatch = appJs.match(/function newQuestion\(type,sectionId\)\{[\s\S]*?\n\}/);
+  assert.ok(nqMatch, 'newQuestion function found in app.js');
+  vm.createContext(sandbox);
+  vm.runInContext(nqMatch[0], sandbox);
+
+  // Check every single type creates a tailored question without generic title
+  expectedTypes.forEach(type => {
+    const q = sandbox.newQuestion(type, 'sec-1');
+    assert.ok(q, `newQuestion returned object for ${type}`);
+    assert.notEqual(q.title, 'Yeni sual', `Question type '${type}' must NOT have generic title 'Yeni sual'`);
+    assert.ok(q.title.length > 5, `Question type '${type}' must have descriptive title`);
+
+    // Specific structural checks
+    if (type === 'text_ab') {
+      assert.ok(q.title.includes('şüar') || q.title.includes('A/B'), 'text_ab title mentions slogan or A/B');
+      assert.equal(q.options.length, 2, 'text_ab has 2 options');
+      assert.equal(q.options[0].image, '', 'text_ab options have no default image');
+    }
+    if (type === 'image_ab') {
+      assert.ok(q.title.includes('vizual') || q.title.includes('dizayn'), 'image_ab title mentions visual design');
+      assert.equal(q.options.length, 2, 'image_ab has 2 visual options');
+      assert.ok(q.options[0].image.startsWith('data:image/svg'), 'image_ab has visual demo image');
+      assert.ok(q.options[1].image.startsWith('data:image/svg'), 'image_ab has visual demo image');
+    }
+    if (type === 'image_choice') {
+      assert.ok(q.options.length >= 3, 'image_choice has multiple options');
+      assert.ok(q.options[0].image.startsWith('data:image/svg'), 'image_choice option 0 has image');
+      assert.ok(q.options[1].image.startsWith('data:image/svg'), 'image_choice option 1 has image');
+    }
+    if (type === 'currency') {
+      assert.equal(q.settings.unit, 'azn', 'currency defaults to AZN unit');
+    }
+    if (type === 'percentage') {
+      assert.equal(q.settings.unit, 'percent', 'percentage defaults to percent unit');
+    }
+    if (type === 'phone') {
+      assert.equal(q.settings.textRule, 'phone', 'phone defaults to phone validation rule');
+    }
+    if (type === 'matrix_text') {
+      assert.ok(q.rows.length >= 3, 'matrix_text has default criteria rows');
+      assert.ok(q.columns.length >= 3, 'matrix_text has default interval columns');
+    }
+    if (type === 'fill_blank') {
+      assert.ok(q.options.length >= 2, 'fill_blank has sentence options with blanks');
+    }
+  });
+
+  // 3. Verify builder live sync & draft auto-saving functions
+  assert.ok(appJs.includes('function saveBuilderDraft'), 'saveBuilderDraft exists in app.js');
+  assert.ok(appJs.includes('function restoreBuilderDraft'), 'restoreBuilderDraft exists in app.js');
+  assert.ok(appJs.includes('function clearBuilderDraft'), 'clearBuilderDraft exists in app.js');
+  assert.ok(appJs.includes('function syncBuilderLive'), 'syncBuilderLive exists in app.js');
+  assert.ok(appJs.includes('syncBuilderLive(q)'), 'updateBuilderField calls syncBuilderLive(q)');
+  assert.ok(appJs.includes('clearBuilderDraft(state.builder.id)'), 'save-builder clears local draft on save');
+  assert.ok(appJs.includes('opt-img-file-input'), 'Per-option image file input upload exists');
+  assert.ok(appJs.includes('clear-opt-img'), 'Clear option image action exists');
+
+  // 4. Server Integration: Upload an image file and test public inline access
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'img-ab-and-library-'));
+  const { base, stop } = await startServer(tmpDir);
+
+  try {
+    const admin = await login(base, 'admin', 'UnitTest@2026!');
+
+    // Upload an image as admin
+    const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const uploadRes = await fetch(`${base}/api/uploads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({
+        name: 'test-product.png',
+        mime: 'image/png',
+        data: pngBase64
+      })
+    });
+    assert.equal(uploadRes.status, 201, 'Image upload succeeded');
+    const uploadJson = await uploadRes.json();
+    assert.ok(uploadJson.id, 'Upload returned file id');
+    assert.equal(uploadJson.url, `/api/uploads/${uploadJson.id}`);
+
+    // Verify public unauthenticated access to the image for respondents
+    const publicImgRes = await fetch(`${base}/api/uploads/${uploadJson.id}`);
+    assert.equal(publicImgRes.status, 200, 'Public image fetch returns 200');
+    assert.equal(publicImgRes.headers.get('content-type'), 'image/png');
+    assert.ok(publicImgRes.headers.get('content-disposition')?.includes('inline'), 'Image is served inline');
+
+    // Create a survey with image_ab test using the uploaded image
+    const sPayload = {
+      title: 'Məhsul Qablaşdırması A/B Testi',
+      category: 'Marketinq',
+      status: 'active',
+      access: 'public',
+      sections: [{ id: 'sec-ab', title: 'Vizual Seçim' }],
+      questions: [
+        {
+          id: 'q-img-ab',
+          sectionId: 'sec-ab',
+          type: 'image_ab',
+          title: 'Yeni etiket dizaynı A/B testi',
+          required: true,
+          options: [
+            { id: 'opt-a', label: 'Dizayn A', image: uploadJson.url },
+            { id: 'opt-b', label: 'Dizayn B', image: uploadJson.url }
+          ]
+        }
+      ]
+    };
+    const sRes = await fetch(`${base}/api/surveys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify(sPayload)
+    });
+    assert.equal(sRes.status, 201);
+    const sJson = await sRes.json();
+    const surveyId = sJson.survey.id;
+
+    // Submit response to the image A/B test
+    const submitRes = await fetch(`${base}/api/public/surveys/${surveyId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        respondentName: 'Test Müştəri',
+        answers: {
+          'q-img-ab': { variant: 'Dizayn A', answer: 'Bəli' }
+        },
+        durationSec: 20
+      })
+    });
+    assert.equal(submitRes.status, 201);
+    const subJson = await submitRes.json();
+    assert.equal(subJson.ok, true);
+
+    // Verify report reflects the answer
+    const repRes = await fetch(`${base}/api/reports/${surveyId}`, {
+      headers: { Cookie: admin.cookie }
+    });
+    assert.equal(repRes.status, 200);
+    const repJson = await repRes.json();
+    assert.equal(repJson.completed, 1);
+    assert.equal(repJson.responses[0].answers['q-img-ab'].variant, 'Dizayn A');
+    assert.equal(repJson.responses[0].answers['q-img-ab'].answer, 'Bəli');
+  } finally {
+    stop();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+
 
 
 
