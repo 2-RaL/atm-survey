@@ -543,3 +543,68 @@
   scroll-behavior: smooth !important;
 }
 
+/* MEASUREMENT UNITS & INPUT BADGES */
+.unit-input-group {
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+  max-width: 570px !important;
+  width: 100% !important;
+}
+.unit-input-group .answer-input {
+  padding-right: 75px !important;
+  width: 100% !important;
+}
+.input-unit-badge {
+  position: absolute !important;
+  right: 10px !important;
+  background: #f1f5f9 !important;
+  color: #1e293b !important;
+  border: 1.5px solid #cbd5e1 !important;
+  padding: 4px 10px !important;
+  border-radius: 8px !important;
+  font-weight: 850 !important;
+  font-size: 12px !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  letter-spacing: .3px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
+}
+.criteria-badge-row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 7px !important;
+  margin-top: 9px !important;
+}
+.criteria-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 4px 10px !important;
+  border-radius: 7px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #475569 !important;
+}
+.criteria-badge.highlight {
+  background: #eef2ff !important;
+  border-color: #c7d2fe !important;
+  color: #4338ca !important;
+}
+.prop-section-title {
+  font-size: 11px !important;
+  font-weight: 850 !important;
+  color: #4338ca !important;
+  background: #eef2ff !important;
+  border: 1px solid #c7d2fe !important;
+  padding: 7px 11px !important;
+  border-radius: 8px !important;
+  margin: 18px 0 12px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  letter-spacing: .5px !important;
+}
+

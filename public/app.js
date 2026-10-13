@@ -75,6 +75,171 @@ const isLeader=()=>state.user?.role==='admin'||state.user?.role==='editor';
 const roleTitle=r=>r==='admin'?'Sistem administratoru':r==='editor'?'Redaktor':'Sorğu operatoru';
 const roleBadge=r=>`<span class="role-badge ${esc(r||'agent')}">${esc(r==='admin'?'Administrator':r==='editor'?'Redaktor':r==='agent'?'Operator':'Qonaq')}</span>`;
 
+const MEASURE_UNITS=[
+  {group:'Ümumi',id:'none',label:'Təyin edilməyib (Ölçü vahidsiz)',short:''},
+  {group:'Çəki və Kütlə',id:'kq',label:'kq (Kiloqram)',short:'kq'},
+  {group:'Çəki və Kütlə',id:'ton',label:'ton (Ton)',short:'ton'},
+  {group:'Çəki və Kütlə',id:'q',label:'q (Qram)',short:'q'},
+  {group:'Çəki və Kütlə',id:'mq',label:'mq (Milliqram)',short:'mq'},
+  {group:'Həcm və Maye',id:'litr',label:'litr (Litr)',short:'litr'},
+  {group:'Həcm və Maye',id:'ml',label:'ml (Millilitr)',short:'ml'},
+  {group:'Həcm və Maye',id:'m3',label:'m³ (Kub metr)',short:'m³'},
+  {group:'Uzunluq və Sahə',id:'metr',label:'metr (Metr)',short:'m'},
+  {group:'Uzunluq və Sahə',id:'sm',label:'sm (Santimetr)',short:'sm'},
+  {group:'Uzunluq və Sahə',id:'km',label:'km (Kilometr)',short:'km'},
+  {group:'Uzunluq və Sahə',id:'mm',label:'mm (Millimetr)',short:'mm'},
+  {group:'Uzunluq və Sahə',id:'m2',label:'m² (Kvadrat metr)',short:'m²'},
+  {group:'Uzunluq və Sahə',id:'ha',label:'ha (Hektar)',short:'ha'},
+  {group:'Miqdar və Say',id:'eded',label:'ədəd (Ədəd)',short:'ədəd'},
+  {group:'Miqdar və Say',id:'nefer',label:'nəfər (Nəfər)',short:'nəfər'},
+  {group:'Miqdar və Say',id:'qutu',label:'qutu (Qutu / Paket)',short:'qutu'},
+  {group:'Miqdar və Say',id:'dest',label:'dəst (Dəst)',short:'dəst'},
+  {group:'Miqdar və Say',id:'kise',label:'kisə (Kisə)',short:'kisə'},
+  {group:'Maliyyə və Valyuta',id:'azn',label:'AZN (Manat ₼)',short:'AZN'},
+  {group:'Maliyyə və Valyuta',id:'usd',label:'USD (Dollar $)',short:'USD'},
+  {group:'Maliyyə və Valyuta',id:'eur',label:'EUR (Avro €)',short:'EUR'},
+  {group:'Faiz',id:'faiz',label:'% (Faiz)',short:'%'},
+  {group:'Zaman',id:'deqiqe',label:'dəqiqə (Dəqiqə)',short:'dəq.'},
+  {group:'Zaman',id:'saat',label:'saat (Saat)',short:'saat'},
+  {group:'Zaman',id:'gun',label:'gün (Gün)',short:'gün'},
+  {group:'Zaman',id:'ay',label:'ay (Ay)',short:'ay'},
+  {group:'Zaman',id:'il',label:'il (İl)',short:'il'},
+  {group:'Digər',id:'custom',label:'Digər / Xüsusi fərdi ölçü vahidi...',short:''}
+];
+
+const TEXT_RULES=[
+  {id:'none',label:'Standart sərbəst mətn (Məhdudiyyətsiz)'},
+  {id:'only_letters',label:'Yalnız hərflər (Ad, soyad, şəhər — rəqəm və simvol olmaz)'},
+  {id:'uppercase',label:'Böyük hərflərlə məcburi (CAPITAL / BÖYÜK HƏRFLƏR)'},
+  {id:'phone_az',label:'Azərbaycan mobil nömrəsi (+994 / 050, 051, 055, 070, 077, 099, 010)'},
+  {id:'email',label:'Düzgün e-poçt formatı (ad@domain.com)'},
+  {id:'fin',label:'FİN kod (Şəxsiyyət vəsiqəsi — 7 simvol)'},
+  {id:'voen',label:'VÖEN (Vergi nömrəsi — 10 rəqəm)'},
+  {id:'min_chars',label:'Minimum simvol sayı (Mətn uzunluğu həddi)'},
+  {id:'max_chars',label:'Maksimum simvol sayı'},
+  {id:'char_range',label:'Simvol sayı aralığı (Min - Maks simvol)'},
+  {id:'min_words',label:'Minimum söz sayı (Geniş rəy və təkliflər üçün)'}
+];
+
+function getQuestionUnit(q){
+  if(!q?.settings)return '';
+  const u=q.settings.unit;
+  if(!u||u==='none')return q.type==='currency'?'AZN':q.type==='percentage'?'%':'';
+  if(u==='custom')return q.settings.customUnit||'';
+  const found=MEASURE_UNITS.find(x=>x.id===u);
+  return found?.short||u;
+}
+
+function validateQuestionAnswer(q,val){
+  if(!q)return '';
+  const s=q.settings||{};
+  const isReq=!!q.required;
+  const customErr=s.errorMessage?.trim();
+  const unit=getQuestionUnit(q);
+
+  const isEmpty=val===undefined||val===null||val===''||
+    (Array.isArray(val)&&!val.length)||
+    (typeof val==='object'&&!Array.isArray(val)&&!Object.values(val).some(x=>Array.isArray(x)?x.length:(x!==''&&x!=null)));
+
+  if(isReq&&isEmpty){
+    return q.title+' — bu suala cavab verilməlidir.';
+  }
+  if(isEmpty)return '';
+
+  if(q.type.startsWith('matrix')&&isReq&&Array.isArray(q.rows)){
+    if(q.rows.some(row=>!val||!(row in val)||(Array.isArray(val[row])?!val[row].length:!val[row]))){
+      return q.title+' — bütün matris sətirlərini cavablandırın.';
+    }
+  }
+  if(q.type==='ranking'&&isReq&&Array.isArray(q.options)){
+    const ranks=q.options.map(o=>val?.[o.label]);
+    if(ranks.some(x=>x===undefined||x==='')||new Set(ranks.map(String)).size!==ranks.length){
+      return q.title+' — hər variant üçün fərqli sıra nömrəsi seçilməlidir.';
+    }
+  }
+  if(q.type==='bestworst'&&isReq&&(!val?.best||!val?.worst||val.best===val.worst)){
+    return q.title+' — ən yaxşı və ən pis variantlar fərqli seçilməlidir.';
+  }
+  if(q.type==='multiple'&&s.maxSelect&&Array.isArray(val)&&val.length>Number(s.maxSelect)){
+    return customErr||`${q.title} — ən çox ${s.maxSelect} seçim edə bilərsiniz.`;
+  }
+
+  // Numeric and Unit validations
+  const isNumType=['number','currency','percentage','slider','rating'].includes(q.type);
+  const hasUnit=s.unit&&s.unit!=='none';
+  const hasNumMin=s.min!==undefined&&s.min!==''&&s.min!==null;
+  const hasNumMax=s.max!==undefined&&s.max!==''&&s.max!==null;
+
+  if(isNumType||hasUnit||hasNumMin||hasNumMax){
+    const num=Number(val);
+    if(!Number.isFinite(num)){
+      return customErr||`${q.title} — düzgün rəqəm dəyəri daxil edilməlidir.`;
+    }
+    if(hasNumMin&&num<Number(s.min)){
+      return customErr||`${q.title} — daxil edilən dəyər minimum ${s.min}${unit?' '+unit:''} olmalıdır.`;
+    }
+    if(hasNumMax&&num>Number(s.max)){
+      return customErr||`${q.title} — daxil edilən dəyər maksimum ${s.max}${unit?' '+unit:''} ola bilər.`;
+    }
+    if(q.type==='percentage'&&(num<0||num>100)){
+      return customErr||`${q.title} — faiz dəyəri 0 ilə 100 arasında olmalıdır.`;
+    }
+  }
+
+  // Text / Letter criteria rules
+  const strVal=String(val).trim();
+  const textRule=s.textRule||(q.type==='email'?'email':q.type==='phone'?'phone_az':'none');
+
+  if(textRule==='only_letters'){
+    if(!/^[a-zA-ZçəıöğşüÇƏİÖĞŞÜ\s\-]+$/u.test(strVal)){
+      return customErr||`${q.title} — yalnız hərflərdən ibarət olmalıdır (rəqəm və ya simvol daxil edilə bilməz).`;
+    }
+  }else if(textRule==='uppercase'){
+    if(/[a-zçəıöğşü]/.test(strVal)){
+      return customErr||`${q.title} — yalnız böyük hərflərlə yazılmalıdır.`;
+    }
+  }else if(textRule==='phone_az'){
+    const cleanPhone=strVal.replace(/[\s\-\(\)\.]/g,'');
+    if(!/^(\+994|994|0)?(10|50|51|55|60|70|77|99)\d{7}$/.test(cleanPhone)){
+      return customErr||`${q.title} — düzgün Azərbaycan mobil nömrəsi daxil edin (məs: +994501234567 və ya 0501234567).`;
+    }
+  }else if(textRule==='email'){
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(strVal)){
+      return customErr||`${q.title} — düzgün e-poçt formatı daxil edin (məsələn: ad@domain.com).`;
+    }
+  }else if(textRule==='fin'){
+    if(!/^[A-Za-z0-9]{7}$/.test(strVal)){
+      return customErr||`${q.title} — FİN kod 7 simvoldan ibarət olmalıdır (hərf və rəqəm).`;
+    }
+  }else if(textRule==='voen'){
+    if(!/^\d{10}$/.test(strVal)){
+      return customErr||`${q.title} — VÖEN 10 rəqəmdən ibarət olmalıdır.`;
+    }
+  }
+
+  if(['min_chars','char_range'].includes(textRule)||(s.minChars&&Number(s.minChars)>0)){
+    const minC=Number(s.minChars||0);
+    if(minC>0&&strVal.length<minC){
+      return customErr||`${q.title} — ən azı ${minC} simvol daxil edilməlidir.`;
+    }
+  }
+  if(['max_chars','char_range'].includes(textRule)||(s.maxChars&&Number(s.maxChars)>0)){
+    const maxC=Number(s.maxChars||0);
+    if(maxC>0&&strVal.length>maxC){
+      return customErr||`${q.title} — daxil edilən mətn ${maxC} simvoldan çox ola bilməz.`;
+    }
+  }
+  if(textRule==='min_words'||(s.minWords&&Number(s.minWords)>0)){
+    const minW=Number(s.minWords||1);
+    const count=strVal.split(/\s+/).filter(Boolean).length;
+    if(count<minW){
+      return customErr||`${q.title} — ən azı ${minW} söz daxil edilməlidir.`;
+    }
+  }
+
+  return '';
+}
+
 let state={
   user:null,page:'dashboard',surveys:[],contacts:[],responses:[],users:[],audit:[],dashboard:null,
   filter:'',statusFilter:'all',selectedSector:'all',selectedContacts:new Set(),builder:null,builderQ:null,builderSection:null,
@@ -646,6 +811,7 @@ function reportsPage(){
 }
 
 function reportDetail(){
+  const leader=isLeader();
   const r=state.report;
   let respList=r.responses||[];
   if(state.filter){
@@ -1041,14 +1207,18 @@ function questionMini(q){
 
 function properties(q){
   const s=state.builder;
+  if(!q.settings)q.settings={};
   const withOpts=['single','multiple','dropdown','image_choice','ranking','bestworst','text_ab','image_ab'].includes(q.type);
   const withRows=['matrix','matrix_multi','matrix_dropdown','multitext'].includes(q.type);
-  const numeric=['slider','rating','stars','nps','likert','number','currency','percentage'].includes(q.type);
+  const numericLike=['slider','rating','stars','nps','likert','number','currency','percentage','short_text'].includes(q.type);
+  const textLike=['short_text','paragraph','name','email','phone','address'].includes(q.type);
+  const unitGroups=[...new Set(MEASURE_UNITS.map(x=>x.group))];
+
   return `
     <button class="btn btn-sm property-close" data-action="close-properties">${ico('close',14)} Paneli bağla</button>
     <div class="builder-panel-title">SUAL PARAMETRLƏRİ</div>
     <h3 class="prop-title">${esc(typeLabel(q.type))}</h3>
-    <p class="prop-desc">Sualın məzmununu, cavab variantlarını və məntiqini tənzimləyin.</p>
+    <p class="prop-desc">Sualın məzmununu, ölçü vahidlərini və qəbul meyarlarını tənzimləyin.</p>
     <div class="prop-fields">
       <div class="field"><label>Sual mətni</label><textarea data-builder-field="title" data-qid="${q.id}">${esc(q.title)}</textarea></div>
       <div class="field"><label>İzah / köməkçi mətn</label><textarea data-builder-field="description" data-qid="${q.id}" style="min-height:60px">${esc(q.description)}</textarea></div>
@@ -1066,15 +1236,85 @@ function properties(q){
         <div class="field"><label>${q.type==='multitext'?'Mətn sahələrinin adları':'Matris sətirləri'} (hər sətirdə bir)</label><textarea data-builder-field="rows" data-qid="${q.id}">${esc(q.rows.join('\n'))}</textarea></div>
         ${q.type!=='multitext'?`<div class="field"><label>Matris sütunları (hər sətirdə bir)</label><textarea data-builder-field="columns" data-qid="${q.id}">${esc(q.columns.join('\n'))}</textarea></div>`:''}
       `:''}
-      ${numeric?`
+      ${numericLike?`
         <div class="prop-divider"></div>
+        <div class="prop-section-title">${ico('sort',14)} ÖLÇÜ VAHİDİ VƏ RƏQƏM MEYARLARI</div>
+        <div class="field">
+          <label>Ölçü vahidi (Seçim və ya xüsusi)</label>
+          <select data-builder-field="unit" data-qid="${q.id}">
+            ${unitGroups.map(grp=>`
+              <optgroup label="${esc(grp)}">
+                ${MEASURE_UNITS.filter(u=>u.group===grp).map(u=>`
+                  <option value="${u.id}" ${(q.settings.unit||'none')===u.id?'selected':''}>${esc(u.label)}</option>
+                `).join('')}
+              </optgroup>
+            `).join('')}
+          </select>
+          <small>Ölçü vahidi sualda respondent və operatora əyani şəkildə göstərilir.</small>
+        </div>
+        ${q.settings.unit==='custom'?`
+          <div class="field">
+            <label>Xüsusi ölçü vahidinin adı</label>
+            <input data-builder-field="customUnit" data-qid="${q.id}" value="${esc(q.settings.customUnit||'')}" placeholder="Məsələn: barel, tay, bağlama, yeşik...">
+          </div>
+        `:''}
         <div class="form-grid">
-          <div class="field"><label>Minimum</label><input type="number" data-builder-field="min" data-qid="${q.id}" value="${esc(q.settings.min??0)}"></div>
-          <div class="field"><label>Maksimum</label><input type="number" data-builder-field="max" data-qid="${q.id}" value="${esc(q.settings.max??10)}"></div>
+          <div class="field">
+            <label>Minimum hədd (Limit)</label>
+            <input type="number" data-builder-field="min" data-qid="${q.id}" value="${esc(q.settings.min??'')}" placeholder="Məs: 1000">
+            <small>Bu həddən aşağı qəbul edilməyəcək.</small>
+          </div>
+          <div class="field">
+            <label>Maksimum hədd</label>
+            <input type="number" data-builder-field="max" data-qid="${q.id}" value="${esc(q.settings.max??'')}" placeholder="Məs: 50000">
+            <small>Bu həddən yuxarı qəbul edilməyəcək.</small>
+          </div>
+        </div>
+        ${['number','currency','percentage','slider'].includes(q.type)?`
+          <div class="field">
+            <label>Addım dəyəri (Step)</label>
+            <input type="number" min="0.0001" step="any" data-builder-field="step" data-qid="${q.id}" value="${esc(q.settings.step??(q.type==='number'?1:''))}" placeholder="Məsələn: 1 və ya 0.1">
+          </div>
+        `:''}
+      `:''}
+      ${textLike?`
+        <div class="prop-divider"></div>
+        <div class="prop-section-title">${ico('edit',14)} HƏRF VƏ MƏTN MEYARLARI</div>
+        <div class="field">
+          <label>Mətn meyarı və format qaydası</label>
+          <select data-builder-field="textRule" data-qid="${q.id}">
+            ${TEXT_RULES.map(r=>`<option value="${r.id}" ${(q.settings.textRule||'none')===r.id?'selected':''}>${esc(r.label)}</option>`).join('')}
+          </select>
+          <small>Daxil edilən cavab yalnız bu meyara uyğun olduqda qəbul olunacaq.</small>
+        </div>
+        ${['min_chars','char_range'].includes(q.settings.textRule)?`
+          <div class="field">
+            <label>Minimum simvol sayı</label>
+            <input type="number" min="1" data-builder-field="minChars" data-qid="${q.id}" value="${esc(q.settings.minChars??'')}" placeholder="Məsələn: 5">
+          </div>
+        `:''}
+        ${['max_chars','char_range'].includes(q.settings.textRule)?`
+          <div class="field">
+            <label>Maksimum simvol sayı</label>
+            <input type="number" min="1" data-builder-field="maxChars" data-qid="${q.id}" value="${esc(q.settings.maxChars??'')}" placeholder="Məsələn: 200">
+          </div>
+        `:''}
+        ${q.settings.textRule==='min_words'?`
+          <div class="field">
+            <label>Minimum söz sayı</label>
+            <input type="number" min="1" data-builder-field="minWords" data-qid="${q.id}" value="${esc(q.settings.minWords??3)}" placeholder="Məsələn: 3">
+            <small>Fikir və rəylər üçün tələb olunan ən azı söz sayı.</small>
+          </div>
+        `:''}
+      `:''}
+      ${(numericLike||textLike)?`
+        <div class="field">
+          <label>Fərdi xəbərdarlıq / xəta mesajı (Könüllü)</label>
+          <input data-builder-field="errorMessage" data-qid="${q.id}" value="${esc(q.settings.errorMessage||'')}" placeholder="Məs: Dəyər 1000 kq-dan aşağı ola bilməz...">
+          <small>Boş saxlasanız, sistem avtomatik olaraq aydın standart xəbərdarlıq mətni göstərəcək.</small>
         </div>
       `:''}
       ${q.type==='multiple'?`<div class="field"><label>Maksimum seçim sayı (0 = limitsiz)</label><input type="number" min="0" max="100" data-builder-field="maxSelect" data-qid="${q.id}" value="${esc(q.settings.maxSelect??0)}"></div>`:''}
-      ${q.type==='slider'?`<div class="field"><label>Addım dəyəri</label><input type="number" min="0.01" step="0.01" data-builder-field="step" data-qid="${q.id}" value="${esc(q.settings.step??1)}"></div>`:''}
       <div class="prop-divider"></div>
       <div class="field">
         <label>Şərtli göstərilmə</label>
@@ -1172,9 +1412,38 @@ function renderAnswer(q,answers={},preview=false){
   else if(type==='paragraph'||type==='address')html=`<textarea class="answer-input answer-textarea" data-answer="${questionId}" placeholder="Cavabı buraya yazın..." ${disabled}>${esc(val??'')}</textarea>`;
   else {
     const inputType=({email:'email',phone:'tel',number:'number',currency:'number',percentage:'number',date:'date',time:'time',datetime:'datetime-local'})[type]||'text';
-    html=`<input class="answer-input" type="${inputType}" ${['number','currency','percentage'].includes(type)?`step="${type==='number'?1:'.01'}" ${type==='percentage'?'min="0" max="100"':''}`:''} data-answer="${questionId}" value="${esc(val??'')}" placeholder="Cavabı daxil edin..." ${disabled}>`;
+    const unit=getQuestionUnit(q);
+    const stepAttr=q.settings?.step?`step="${esc(q.settings.step)}"`:(['number','currency','percentage'].includes(type)?`step="${type==='number'?1:'.01'}"`:'');
+    const minAttr=q.settings?.min!==undefined&&q.settings.min!==''?`min="${esc(q.settings.min)}"`:(type==='percentage'?'min="0"':'');
+    const maxAttr=q.settings?.max!==undefined&&q.settings.max!==''?`max="${esc(q.settings.max)}"`:(type==='percentage'?'max="100"':'');
+    const ph=unit?`Cavabı daxil edin (${unit})...`:'Cavabı daxil edin...';
+    if(unit){
+      html=`<div class="unit-input-group"><input class="answer-input" type="${inputType}" ${stepAttr} ${minAttr} ${maxAttr} data-answer="${questionId}" value="${esc(val??'')}" placeholder="${esc(ph)}" ${disabled}><span class="input-unit-badge">${esc(unit)}</span></div>`;
+    }else{
+      html=`<input class="answer-input" type="${inputType}" ${stepAttr} ${minAttr} ${maxAttr} data-answer="${questionId}" value="${esc(val??'')}" placeholder="${esc(ph)}" ${disabled}>`;
+    }
   }
-  return `<div class="answer-question" data-question="${questionId}"><div class="answer-qtitle">${esc(q.title)} ${q.required?'<span class="required">*</span>':''}</div>${q.description?`<div class="answer-desc">${esc(q.description)}</div>`:''}${html}</div>`;
+  const hints=[];
+  const unitStr=getQuestionUnit(q);
+  if(q.settings?.min!==undefined&&q.settings?.min!==''&&q.settings?.min!==null){
+    hints.push(`Minimum: <b>${esc(q.settings.min)}${unitStr?' '+esc(unitStr):''}</b>`);
+  }
+  if(q.settings?.max!==undefined&&q.settings?.max!==''&&q.settings?.max!==null){
+    hints.push(`Maksimum: <b>${esc(q.settings.max)}${unitStr?' '+esc(unitStr):''}</b>`);
+  }
+  if(q.settings?.textRule&&q.settings.textRule!=='none'){
+    const ruleObj=TEXT_RULES.find(r=>r.id===q.settings.textRule);
+    if(ruleObj){
+      if(q.settings.textRule==='min_words'&&q.settings.minWords)hints.push(`Ən azı <b>${esc(q.settings.minWords)} söz</b>`);
+      else if(q.settings.textRule==='min_chars'&&q.settings.minChars)hints.push(`Ən azı <b>${esc(q.settings.minChars)} simvol</b>`);
+      else if(q.settings.textRule==='max_chars'&&q.settings.maxChars)hints.push(`Ən çox <b>${esc(q.settings.maxChars)} simvol</b>`);
+      else if(q.settings.textRule==='char_range')hints.push(`Simvol: <b>${esc(q.settings.minChars||0)} - ${esc(q.settings.maxChars||'∞')}</b>`);
+      else hints.push(esc(ruleObj.label.split('(')[0].trim()));
+    }
+  }
+  const hintHtml=hints.length?`<div class="criteria-badge-row">${hints.map(h=>`<span class="criteria-badge highlight">${ico('check',12)} ${h}</span>`).join('')}</div>`:'';
+
+  return `<div class="answer-question" data-question="${questionId}"><div class="answer-qtitle">${esc(q.title)} ${q.required?'<span class="required">*</span>':''}</div>${q.description?`<div class="answer-desc">${esc(q.description)}</div>`:''}${html}${hintHtml}</div>`;
 }
 
 function conditionMatch(q,answers){
@@ -1407,8 +1676,8 @@ function successPage(){
 function checkSection(){
   for(const q of activeQuestions()){
     const val=state.interview.answers[q.id];
-    if(q.required&&(val==null||val===''||(Array.isArray(val)&&!val.length)||(typeof val==='object'&&val&&!Object.values(val).some(a=>Array.isArray(a)?a.length:a!==''&&a!=null))))return q.title+' — bu suala cavab verilməlidir.';
-    if(q.type==='email'&&val&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val))return q.title+' — e-poçt formatı yanlışdır.';
+    const err=validateQuestionAnswer(q,val);
+    if(err)return err;
   }
   return '';
 }
@@ -1620,12 +1889,8 @@ function checkPublicSection(){
   const qList=s.questions.filter(q=>q.sectionId===sec.id&&conditionMatch(q,state.publicSurveyAnswers));
   for(const q of qList){
     const val=state.publicSurveyAnswers[q.id];
-    if(q.required&&(val==null||val===''||(Array.isArray(val)&&!val.length)||(typeof val==='object'&&val&&!Object.values(val).some(a=>Array.isArray(a)?a.length:a!==''&&a!=null)))) {
-      return q.title+' — bu suala cavab verilməlidir.';
-    }
-    if(q.type==='email'&&val&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)){
-      return q.title+' — e-poçt formatı yanlışdır.';
-    }
+    const err=validateQuestionAnswer(q,val);
+    if(err)return err;
   }
   return '';
 }
@@ -1950,13 +2215,21 @@ function findBuilderQ(id){return state.builder?.questions.find(q=>q.id===id);}
 function updateBuilderField(el){
   const q=findBuilderQ(el.dataset.qid),key=el.dataset.builderField;
   if(!q)return;
+  if(!q.settings)q.settings={};
   const v=el.type==='checkbox'?el.checked:el.value;
   switch(key){
     case'required':q.required=!!v;break;
     case'options':{const old=q.options||[],images=old.map(o=>o.image);q.options=String(v).split(/\r?\n/).filter(x=>x.trim()).slice(0,80).map((label,i)=>({id:old[i]?.id||mkId(),label:label.trim(),image:images[i]||''}));break;}
     case'images':{const images=String(v).split(/\r?\n/);q.options.forEach((o,i)=>o.image=images[i]||'');break;}
     case'rows':case'columns':q[key]=String(v).split(/\r?\n/).map(x=>x.trim()).filter(Boolean);break;
-    case'min':case'max':case'maxSelect':case'step':q.settings[key]=Number(v);break;
+    case'min':case'max':case'maxSelect':case'step':case'minChars':case'maxChars':case'minWords':{
+      if(v===''||v==null||Number.isNaN(Number(v))){delete q.settings[key];}else{q.settings[key]=Number(v);}
+      break;
+    }
+    case'unit':case'customUnit':case'textRule':case'errorMessage':{
+      if(v===''||v==null||v==='none'){delete q.settings[key];}else{q.settings[key]=String(v).trim();}
+      break;
+    }
     case'conditionQuestion':q.condition=v?{questionId:v,operator:q.condition?.operator||'equals',value:q.condition?.value||''}:null;break;
     case'conditionOperator':if(q.condition)q.condition.operator=v;break;
     case'conditionValue':if(q.condition)q.condition.value=v;break;

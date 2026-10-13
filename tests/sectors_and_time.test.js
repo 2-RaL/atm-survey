@@ -514,4 +514,210 @@ test('Matrix question large round inputs, builder scroll freeze, and draft recov
   assert.ok(appJs.includes("window.addEventListener('offline'"), 'Offline network listener registered');
 });
 
+test('Report leader definition fix, measurement units, numeric thresholds, and text criteria validation', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sorgu-units-'));
+  const { base, stop } = await startServer(dataDir);
+  try {
+    const appJs = fs.readFileSync(path.join(project, 'public/app.js'), 'utf8');
+    const styleCss = fs.readFileSync(path.join(project, 'public/style.css'), 'utf8');
+
+    // 1. Verify "leader is not defined" fix in reportDetail()
+    assert.ok(appJs.includes('function reportDetail(){\n  const leader=isLeader();'), 'reportDetail defines leader=isLeader()');
+    assert.ok(styleCss.includes('.unit-input-group'), 'CSS contains unit-input-group');
+    assert.ok(styleCss.includes('.input-unit-badge'), 'CSS contains input-unit-badge');
+    assert.ok(styleCss.includes('.prop-section-title'), 'CSS contains prop-section-title');
+
+    // 2. Login as admin and create a survey with measurement units (ton, min 1000) and text criteria (phone, only_letters, fin, min_words)
+    const admin = await login(base, 'admin', '1234567890');
+
+    const surveyData = {
+      title: 'Ölçü Vahidləri və Meyarlar Testi',
+      category: 'Kənd təsərrüfatı və Ticarət',
+      status: 'active',
+      access: 'public',
+      sections: [{ id: 'sec-val', title: 'Əsas göstəricilər' }],
+      questions: [
+        {
+          id: 'q-ton',
+          sectionId: 'sec-val',
+          type: 'number',
+          title: 'Məhsulun çəkisi (ton)',
+          required: true,
+          settings: { unit: 'ton', min: 1000, max: 50000, errorMessage: 'Tonaj 1000 tondan aşağı ola bilməz.' }
+        },
+        {
+          id: 'q-name',
+          sectionId: 'sec-val',
+          type: 'short_text',
+          title: 'Təchizatçının adı',
+          required: true,
+          settings: { textRule: 'only_letters' }
+        },
+        {
+          id: 'q-phone',
+          sectionId: 'sec-val',
+          type: 'phone',
+          title: 'Əlaqə nömrəsi',
+          required: true,
+          settings: { textRule: 'phone_az' }
+        },
+        {
+          id: 'q-fin',
+          sectionId: 'sec-val',
+          type: 'short_text',
+          title: 'FİN kod',
+          required: true,
+          settings: { textRule: 'fin' }
+        },
+        {
+          id: 'q-desc',
+          sectionId: 'sec-val',
+          type: 'paragraph',
+          title: 'Təsvir və Qeydlər',
+          required: false,
+          settings: { textRule: 'min_words', minWords: 3 }
+        }
+      ]
+    };
+
+    const sRes = await fetch(`${base}/api/surveys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify(surveyData)
+    });
+    assert.equal(sRes.status, 201);
+    const createdSurvey = (await sRes.json()).survey;
+    const surveyId = createdSurvey.id;
+
+    // 3. Test failure: submitting number below min 1000 ton
+    const failMinRes = await fetch(`${base}/api/surveys/${surveyId}/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({
+        status: 'completed',
+        answers: {
+          'q-ton': 500, // Invalid: < 1000
+          'q-name': 'Ramin Əliyev',
+          'q-phone': '+994501234567',
+          'q-fin': '7ABC123',
+          'q-desc': 'Bir iki üç'
+        },
+        durationSec: 45
+      })
+    });
+    assert.equal(failMinRes.status, 400);
+    const failMinJson = await failMinRes.json();
+    assert.ok(failMinJson.error.includes('1000') || failMinJson.error.includes('Tonaj'), 'Custom or numeric min error triggered');
+
+    // 4. Test failure: submitting invalid characters into only_letters field
+    const failLetterRes = await fetch(`${base}/api/surveys/${surveyId}/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({
+        status: 'completed',
+        answers: {
+          'q-ton': 1500,
+          'q-name': 'Ramin 123!', // Invalid: numbers & symbols
+          'q-phone': '+994501234567',
+          'q-fin': '7ABC123'
+        },
+        durationSec: 45
+      })
+    });
+    assert.equal(failLetterRes.status, 400);
+    const failLetterJson = await failLetterRes.json();
+    assert.ok(failLetterJson.error.includes('hərflərdən ibarət olmalıdır'), 'Only letters error triggered');
+
+    // 5. Test failure: submitting invalid mobile phone format
+    const failPhoneRes = await fetch(`${base}/api/surveys/${surveyId}/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({
+        status: 'completed',
+        answers: {
+          'q-ton': 1500,
+          'q-name': 'Ramin Əliyev',
+          'q-phone': '12345', // Invalid phone
+          'q-fin': '7ABC123'
+        },
+        durationSec: 45
+      })
+    });
+    assert.equal(failPhoneRes.status, 400);
+    const failPhoneJson = await failPhoneRes.json();
+    assert.ok(failPhoneJson.error.includes('Azərbaycan mobil nömrəsi'), 'Azerbaijan mobile phone format error triggered');
+
+    // 6. Test failure: submitting invalid FIN (less than 7 chars)
+    const failFinRes = await fetch(`${base}/api/surveys/${surveyId}/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({
+        status: 'completed',
+        answers: {
+          'q-ton': 1500,
+          'q-name': 'Ramin Əliyev',
+          'q-phone': '+994501234567',
+          'q-fin': 'ABC12' // 5 chars instead of 7
+        },
+        durationSec: 45
+      })
+    });
+    assert.equal(failFinRes.status, 400);
+    const failFinJson = await failFinRes.json();
+    assert.ok(failFinJson.error.includes('FİN kod 7 simvol'), 'FIN format error triggered');
+
+    // 7. Test failure: min words constraint (only 2 words when 3 required)
+    const failWordsRes = await fetch(`${base}/api/surveys/${surveyId}/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({
+        status: 'completed',
+        answers: {
+          'q-ton': 1500,
+          'q-name': 'Ramin Əliyev',
+          'q-phone': '+994501234567',
+          'q-fin': '7ABC123',
+          'q-desc': 'İki söz' // Only 2 words
+        },
+        durationSec: 45
+      })
+    });
+    assert.equal(failWordsRes.status, 400);
+    const failWordsJson = await failWordsRes.json();
+    assert.ok(failWordsJson.error.includes('ən azı 3 söz'), 'Min words error triggered');
+
+    // 8. Test success: all criteria satisfied!
+    const successRes = await fetch(`${base}/api/surveys/${surveyId}/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({
+        status: 'completed',
+        answers: {
+          'q-ton': 1250, // >= 1000 ton
+          'q-name': 'Ramin Əliyev', // Only letters
+          'q-phone': '+994501234567', // Valid AZ mobile
+          'q-fin': '7XYZ999', // 7 chars FIN
+          'q-desc': 'Bu tam ətraflı məhsul təsviridir və qəbul olunmalıdır.' // > 3 words
+        },
+        durationSec: 62
+      })
+    });
+    assert.equal(successRes.status, 201);
+    const successJson = await successRes.json();
+    assert.equal(successJson.ok, true);
+
+    // 9. Verify report endpoint returns data successfully
+    const reportRes = await fetch(`${base}/api/reports/${surveyId}`, {
+      headers: { Cookie: admin.cookie }
+    });
+    assert.equal(reportRes.status, 200);
+    const repData = await reportRes.json();
+    assert.equal(repData.completed, 1);
+  } finally {
+    stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+
 

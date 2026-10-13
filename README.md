@@ -117,6 +117,25 @@ Bu quruluş az və orta həcmli daxili pilot layihə üçün uyğundur. **Çoxsa
 - Sistem zəngin **real audio bağlantısını yaratmır və yazmır**. `tel:` düyməsi telefonda və ya uyğun kompüter proqramında zəng interfeysini açır. Birbaşa VoIP/CRM/avtomatik zəng üçün ayrıca provayder API inteqrasiyası lazımdır.
 - Real məlumatların toplanmasına başlamazdan əvvəl müvafiq razılıq, məlumat saxlanması və məxfiliyə dair hüquqi tələblərə əməl edin.
 
+## 6.1. Ölçü Vahidləri, Rəqəm və Mətn Meyarları (Validasya Sistemi)
+
+Konstruktorun sağ tərəfindəki **"Sual Parametrləri"** panelindən suallara xüsusi ölçü vahidləri və meyarlar tətbiq olunur:
+
+1. **Ölçü Vahidləri və Rəqəm Hədləri:**
+   - **Vahidlər:** `kq (kiloqram)`, `ton`, `q (qram)`, `mq`, `litr`, `ml`, `m³`, `metr`, `sm`, `km`, `mm`, `m²`, `ha`, `ədəd`, `nəfər`, `qutu`, `dəst`, `kisə`, `AZN (₼)`, `USD ($)`, `EUR (€)`, `% (faiz)`, `dəqiqə`, `saat`, `gün`, `ay`, `il` və ya fərdi xüsusi vahid.
+   - **Minimum və Maksimum Hədlər:** Məsələn, ton seçilərkən `Minimum: 1000` təyin oluna bilər; bu halda 1000-dən aşağı dəyər daxil edilməsinə icazə verilmir.
+   - **Vizual göstərici:** Suallarda daxiletmə sahəsinin yanında ölçü vahidi nişanı və dərhal altında tələb olunan minimum/maksimum hədlər əyani şəkildə görünür.
+
+2. **Hərf və Mətn Meyarları:**
+   - **Yalnız hərflər:** Ad, soyad, region üçün — rəqəm və xüsusi simvollar qadağan edilir.
+   - **Böyük hərflərlə məcburi (CAPITAL):** Bütün hərflərin böyük daxil olunması tələb edilir.
+   - **Azərbaycan mobil nömrəsi:** `+994` və ya `050`, `051`, `055`, `070`, `077`, `099`, `010` prefiksləri ilə düzgün mobil nömrə formatı tələb edilir.
+   - **E-poçt formatı:** Standart `ad@domain.com` strukturu yoxlanılır.
+   - **FİN kod:** 7 simvollu şəxsiyyət vəsiqəsi FİN kodu tələbi.
+   - **VÖEN:** 10 rəqəmli vergi ödəyicisi nömrəsi tələbi.
+   - **Simvol və Söz Sayı Hədləri:** Minimum/maksimum simvol sayı və minimum söz sayı tələbi (məs: geniş rəy üçün ən azı 3 söz).
+   - **Fərdi xəbərdarlıq mesajı:** Şərt ödənmədikdə respondentə və ya operatora aydın şəkildə göstərilən xüsusi bildiriş mətni.
+
 ## 7. Testlər
 
 ```bash

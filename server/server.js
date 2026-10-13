@@ -49,15 +49,123 @@ function surveySafe(s){return s;}
 function validateSurvey(input,base){const allowed=['single','multiple','dropdown','yesno','image_choice','rating','stars','slider','ranking','bestworst','matrix','matrix_multi','matrix_dropdown','nps','likert','short_text','paragraph','number','currency','percentage','email','phone','date','time','datetime','name','address','multitext','file','consent','text_ab','image_ab'];
 const sections=asArray(input.sections).slice(0,60).map(s=>({id:safeId(s.id)?s.id:uid(),title:cleanText(s.title,160)||'Yeni bölmə',description:cleanText(s.description,500)}));
 if(!sections.length)sections.push({id:uid(),title:'Əsas bölmə',description:''});
-const questions=asArray(input.questions).slice(0,250).map(q=>({id:safeId(q.id)?q.id:uid(),sectionId:sections.some(s=>s.id===q.sectionId)?q.sectionId:sections[0].id,type:allowed.includes(q.type)?q.type:'short_text',title:cleanText(q.title,400)||'Yeni sual',description:cleanText(q.description,1000),required:!!q.required,options:asArray(q.options).slice(0,80).map(o=>({id:safeId(o.id)?o.id:uid(),label:cleanText(o.label,200),image:cleanText(o.image,1500)})),rows:asArray(q.rows).slice(0,35).map(x=>cleanText(x,180)),columns:asArray(q.columns).slice(0,35).map(x=>cleanText(x,180)),settings:typeof q.settings==='object'&&q.settings&&!Array.isArray(q.settings)?JSON.parse(JSON.stringify(q.settings)).constructor===Object?Object.fromEntries(Object.entries(q.settings).slice(0,30).map(([k,v])=>[cleanText(k,50),typeof v==='string'?cleanText(v,500):typeof v==='number'?Math.max(-1000000,Math.min(1000000,v)):typeof v==='boolean'?v:null])):{}:{},condition:q.condition&&safeId(q.condition.questionId)&&['equals','not_equals','contains','not_empty','empty'].includes(q.condition.operator)?{questionId:q.condition.questionId,operator:q.condition.operator,value:cleanText(q.condition.value,500)}:null}));
+const questions=asArray(input.questions).slice(0,250).map(q=>({id:safeId(q.id)?q.id:uid(),sectionId:sections.some(s=>s.id===q.sectionId)?q.sectionId:sections[0].id,type:allowed.includes(q.type)?q.type:'short_text',title:cleanText(q.title,400)||'Yeni sual',description:cleanText(q.description,1000),required:!!q.required,options:asArray(q.options).slice(0,80).map(o=>({id:safeId(o.id)?o.id:uid(),label:cleanText(o.label,200),image:cleanText(o.image,1500)})),rows:asArray(q.rows).slice(0,35).map(x=>cleanText(x,180)),columns:asArray(q.columns).slice(0,35).map(x=>cleanText(x,180)),settings:typeof q.settings==='object'&&q.settings&&!Array.isArray(q.settings)?JSON.parse(JSON.stringify(q.settings)).constructor===Object?Object.fromEntries(Object.entries(q.settings).slice(0,30).map(([k,v])=>[cleanText(k,50),typeof v==='string'?cleanText(v,500):typeof v==='number'?Math.max(-1000000000,Math.min(1000000000,v)):typeof v==='boolean'?v:null])):{}:{},condition:q.condition&&safeId(q.condition.questionId)&&['equals','not_equals','contains','not_empty','empty'].includes(q.condition.operator)?{questionId:q.condition.questionId,operator:q.condition.operator,value:cleanText(q.condition.value,500)}:null}));
 return {...base,title:cleanText(input.title,180)||'Adsız sorğu',description:cleanText(input.description,1500),category:cleanText(input.category,80)||'Ümumi',status:['draft','active','paused','archived'].includes(input.status)?input.status:'draft',access:input.access==='private'?'private':'public',language:'az',estimatedMinutes:Math.min(180,Math.max(1,Number(input.estimatedMinutes)||5)),accent:/^#[0-9a-fA-F]{6}$/.test(input.accent||'')?input.accent:'#6756ea',sections,questions,updatedAt:iso()};}
 function visible(q,answers){if(!q.condition)return true;const val=answers[q.condition.questionId];const v=Array.isArray(val)?val.join(', '):val&&typeof val==='object'?Object.values(val).join(', '):String(val??'');switch(q.condition.operator){case 'equals':return Array.isArray(val)?val.includes(q.condition.value):v===q.condition.value;case 'not_equals':return v!==q.condition.value;case 'contains':return v.includes(q.condition.value);case 'not_empty':return v.trim()!=='';case 'empty':return v.trim()==='';}return true;}
-function validateAnswers(survey,answers){for(const q of survey.questions){if(!visible(q,answers))continue;const v=answers[q.id];if(q.required&&(v===undefined||v===null||v===''||(Array.isArray(v)&&!v.length)||(typeof v==='object'&&!Array.isArray(v)&&!Object.values(v).some(x=>x!==''&&x!==null))))return q.title+' — cavab tələb olunur.';if(v==null||v==='')continue;if(q.type==='email'&&typeof v==='string'&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))return q.title+' — e-poçt formatı yanlışdır.';
-if(q.type==='multiple'&&q.settings?.maxSelect&&Array.isArray(v)&&v.length>Number(q.settings.maxSelect))return q.title+' — seçim limiti aşıldı.';
-if(['number','percentage','currency'].includes(q.type)&&v!==''&&(!Number.isFinite(Number(v))||(q.type==='percentage'&&(Number(v)<0||Number(v)>100))))return q.title+' — rəqəm dəyəri yanlışdır.';
-if(q.type.startsWith('matrix')&&q.required&&q.rows.some(row=>!v||!(row in v)||(Array.isArray(v[row])?!v[row].length:!v[row])))return q.title+' — bütün matris sətirlərini cavablandırın.';
-if(q.type==='ranking'&&q.required){const ranks=q.options.map(o=>v?.[o.label]);if(ranks.some(x=>x===undefined||x==='')||new Set(ranks.map(String)).size!==ranks.length)return q.title+' — hər variant üçün fərqli sıra nömrəsi seçilməlidir.';}
-if(q.type==='bestworst'&&q.required&&(!v?.best||!v?.worst||v.best===v.worst))return q.title+' — ən yaxşı və ən pis fərqli seçilməlidir.';}return null;}
+function validateQuestionAnswer(q,val){
+  if(!q)return null;
+  const s=q.settings||{};
+  const isReq=!!q.required;
+  const customErr=s.errorMessage?String(s.errorMessage).trim():'';
+  const isEmpty=val===undefined||val===null||val===''||
+    (Array.isArray(val)&&!val.length)||
+    (typeof val==='object'&&!Array.isArray(val)&&!Object.values(val).some(x=>Array.isArray(x)?x.length:(x!==''&&x!=null)));
+  if(isReq&&isEmpty)return q.title+' — cavab tələb olunur.';
+  if(isEmpty)return null;
+
+  if(q.type.startsWith('matrix')&&isReq&&Array.isArray(q.rows)){
+    if(q.rows.some(row=>!val||!(row in val)||(Array.isArray(val[row])?!val[row].length:!val[row]))){
+      return q.title+' — bütün matris sətirlərini cavablandırın.';
+    }
+  }
+  if(q.type==='ranking'&&isReq&&Array.isArray(q.options)){
+    const ranks=q.options.map(o=>val?.[o.label]);
+    if(ranks.some(x=>x===undefined||x==='')||new Set(ranks.map(String)).size!==ranks.length){
+      return q.title+' — hər variant üçün fərqli sıra nömrəsi seçilməlidir.';
+    }
+  }
+  if(q.type==='bestworst'&&isReq&&(!val?.best||!val?.worst||val.best===val.worst)){
+    return q.title+' — ən yaxşı və ən pis fərqli seçilməlidir.';
+  }
+  if(q.type==='multiple'&&s.maxSelect&&Array.isArray(val)&&val.length>Number(s.maxSelect)){
+    return customErr||(q.title+' — seçim limiti aşıldı.');
+  }
+
+  // Numeric and Unit validations
+  const isNumType=['number','percentage','currency','slider','rating'].includes(q.type);
+  const hasUnit=s.unit&&s.unit!=='none';
+  const hasNumMin=s.min!==undefined&&s.min!==''&&s.min!==null;
+  const hasNumMax=s.max!==undefined&&s.max!==''&&s.max!==null;
+
+  if(isNumType||hasUnit||hasNumMin||hasNumMax){
+    const num=Number(val);
+    if(!Number.isFinite(num)){
+      return customErr||(q.title+' — rəqəm dəyəri yanlışdır.');
+    }
+    const unitLabel=s.unit==='custom'?(s.customUnit||''):(s.unit||'');
+    if(hasNumMin&&num<Number(s.min)){
+      return customErr||(q.title+` — daxil edilən dəyər minimum ${s.min}${unitLabel?' '+unitLabel:''} olmalıdır.`);
+    }
+    if(hasNumMax&&num>Number(s.max)){
+      return customErr||(q.title+` — daxil edilən dəyər maksimum ${s.max}${unitLabel?' '+unitLabel:''} ola bilər.`);
+    }
+    if(q.type==='percentage'&&(num<0||num>100)){
+      return customErr||(q.title+' — faiz dəyəri 0 ilə 100 arasında olmalıdır.');
+    }
+  }
+
+  // Text / Letter criteria rules
+  const strVal=String(val).trim();
+  const textRule=s.textRule||(q.type==='email'?'email':q.type==='phone'?'phone_az':'none');
+
+  if(textRule==='only_letters'){
+    if(!/^[a-zA-ZçəıöğşüÇƏİÖĞŞÜ\s\-]+$/u.test(strVal)){
+      return customErr||(q.title+' — yalnız hərflərdən ibarət olmalıdır (rəqəm və ya simvol daxil edilə bilməz).');
+    }
+  }else if(textRule==='uppercase'){
+    if(/[a-zçəıöğşü]/.test(strVal)){
+      return customErr||(q.title+' — yalnız böyük hərflərlə yazılmalıdır.');
+    }
+  }else if(textRule==='phone_az'){
+    const cleanPhone=strVal.replace(/[\s\-\(\)\.]/g,'');
+    if(!/^(\+994|994|0)?(10|50|51|55|60|70|77|99)\d{7}$/.test(cleanPhone)){
+      return customErr||(q.title+' — düzgün Azərbaycan mobil nömrəsi daxil edin (məs: +994501234567 və ya 0501234567).');
+    }
+  }else if(textRule==='email'){
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(strVal)){
+      return customErr||(q.title+' — e-poçt formatı yanlışdır.');
+    }
+  }else if(textRule==='fin'){
+    if(!/^[A-Za-z0-9]{7}$/.test(strVal)){
+      return customErr||(q.title+' — FİN kod 7 simvoldan ibarət olmalıdır.');
+    }
+  }else if(textRule==='voen'){
+    if(!/^\d{10}$/.test(strVal)){
+      return customErr||(q.title+' — VÖEN 10 rəqəmdən ibarət olmalıdır.');
+    }
+  }
+
+  if(['min_chars','char_range'].includes(textRule)||(s.minChars&&Number(s.minChars)>0)){
+    const minC=Number(s.minChars||0);
+    if(minC>0&&strVal.length<minC){
+      return customErr||(q.title+` — ən azı ${minC} simvol daxil edilməlidir.`);
+    }
+  }
+  if(['max_chars','char_range'].includes(textRule)||(s.maxChars&&Number(s.maxChars)>0)){
+    const maxC=Number(s.maxChars||0);
+    if(maxC>0&&strVal.length>maxC){
+      return customErr||(q.title+` — daxil edilən mətn ${maxC} simvoldan çox ola bilməz.`);
+    }
+  }
+  if(textRule==='min_words'||(s.minWords&&Number(s.minWords)>0)){
+    const minW=Number(s.minWords||1);
+    const count=strVal.split(/\s+/).filter(Boolean).length;
+    if(count<minW){
+      return customErr||(q.title+` — ən azı ${minW} söz daxil edilməlidir.`);
+    }
+  }
+
+  return null;
+}
+function validateAnswers(survey,answers){
+  for(const q of survey.questions){
+    if(!visible(q,answers))continue;
+    const v=answers[q.id];
+    const err=validateQuestionAnswer(q,v);
+    if(err)return err;
+  }
+  return null;
+}
 function answerSanitize(answers,survey){if(!answers||typeof answers!=='object'||Array.isArray(answers))return {};const out={};for(const q of survey.questions){const a=answers[q.id];if(a===undefined||a===null)continue;if(typeof a==='string')out[q.id]=a.slice(0,6000);else if(typeof a==='number'&&Number.isFinite(a))out[q.id]=a;else if(Array.isArray(a))out[q.id]=a.slice(0,100).map(x=>cleanText(x,500));else if(typeof a==='object')out[q.id]=Object.fromEntries(Object.entries(a).slice(0,100).map(([k,v])=>[cleanText(k,180),cleanText(v,800)]));else if(typeof a==='boolean')out[q.id]=a;}return out;}
 function csvVal(v){const txt=Array.isArray(v)?v.join(' | '):typeof v==='object'&&v?Object.entries(v).map(([k,val])=>k+': '+val).join(' | '):String(v??'');const safe=/^[\x00-\x20]*[=+\-@]/.test(txt)?"'"+txt:txt;return '"'+safe.replace(/"/g,'""')+'"';}
 function formatDuration(sec){
@@ -74,7 +182,8 @@ function formatDuration(sec){
 
 function cleanAnswerForExport(v, q) {
   if (v === undefined || v === null || v === '') return '—';
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  const unit = q?.settings?.unit && q.settings.unit !== 'none' ? (q.settings.unit === 'custom' ? (q.settings.customUnit || '') : q.settings.unit) : '';
+  if (typeof v === 'number' || typeof v === 'boolean') return unit ? `${v} ${unit}` : String(v);
   if (Array.isArray(v)) return v.join(', ');
   if (typeof v === 'object') {
     if (v.variant && v.answer !== undefined) return String(v.variant) + ' -> ' + String(v.answer);
