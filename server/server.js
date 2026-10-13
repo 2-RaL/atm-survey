@@ -95,12 +95,14 @@ function validateQuestionAnswer(q,val){
   }
 
   // Numeric and Unit validations
-  const isNumType=['number','percentage','currency','slider','rating'].includes(q.type);
-  const hasUnit=s.unit&&s.unit!=='none';
-  const hasNumMin=s.min!==undefined&&s.min!==''&&s.min!==null;
-  const hasNumMax=s.max!==undefined&&s.max!==''&&s.max!==null;
+  // Numeric and Unit validations
+  const isNumericType=['number','percentage','currency','slider','rating','stars','nps'].includes(q.type);
+  const isNonNumeric=['single','multiple','dropdown','yesno','image_choice','matrix','matrix_multi','matrix_dropdown','matrix_text','fill_blank','ranking','bestworst','likert','file','date','time','datetime','duration','consent','text_ab','image_ab','name','address','paragraph','multitext'].includes(q.type);
+  const hasUnit=s.unit&&s.unit!=='none'&&!isNonNumeric;
+  const hasNumMin=isNumericType&&s.min!==undefined&&s.min!==''&&s.min!==null;
+  const hasNumMax=isNumericType&&s.max!==undefined&&s.max!==''&&s.max!==null;
 
-  if(isNumType||hasUnit||hasNumMin||hasNumMax){
+  if(!isNonNumeric&&(isNumericType||hasUnit)){
     const num=Number(val);
     if(!Number.isFinite(num)){
       return customErr||(q.title+' — rəqəm dəyəri yanlışdır.');
@@ -221,7 +223,7 @@ function cleanAnswerForExport(v, q) {
   if (typeof v === 'number' || typeof v === 'boolean') return unit ? `${v} ${unit}` : String(v);
   if (Array.isArray(v)) return v.join(', ');
   if (typeof v === 'object') {
-    if (v.variant && v.answer !== undefined) return String(v.variant) + ' -> ' + String(v.answer);
+    if (v.variant && v.answer !== undefined) return v.variant === v.answer ? String(v.variant) : String(v.variant) + ' -> ' + String(v.answer);
     if (q?.type === 'fill_blank' && Array.isArray(q?.options)) {
       const parts = q.options.map(o => {
         const filled = v[o.id] !== undefined && v[o.id] !== null ? String(v[o.id]).trim() : '';

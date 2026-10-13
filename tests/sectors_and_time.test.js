@@ -1155,6 +1155,192 @@ test('Builder scroll freeze, in-place updates, and default required: false for n
   assert.ok(!appJs.includes("if(el.tagName==='SELECT'||el.type==='checkbox')render()"), 'No full render on checkbox toggle');
 });
 
+test('Matrix multi-choice validation fix (no numeric error) and Image/Text A/B both variants displayed', async t => {
+  const appJsPath = path.join(project, 'public/app.js');
+  const appJs = fs.readFileSync(appJsPath, 'utf8');
+
+  // 1. Client sandbox test for validateAnswer
+  const vm = require('vm');
+  const sandbox = {
+    getQuestionUnit: () => '',
+    TEXT_RULES: [],
+    DEMO_IMG_A: 'data:image/svg+xml;demoA',
+    DEMO_IMG_B: 'data:image/svg+xml;demoB',
+    esc: s => String(s || ''),
+    ico: () => '',
+    qVal: (answers, id) => answers ? answers[id] : undefined
+  };
+
+  const vaMatch = appJs.match(/function validateQuestionAnswer\(q,val\)\{[\s\S]*?\n\}/);
+  assert.ok(vaMatch, 'validateQuestionAnswer function found in app.js');
+  vm.createContext(sandbox);
+  vm.runInContext(vaMatch[0], sandbox);
+  sandbox.validateAnswer = sandbox.validateQuestionAnswer;
+
+  // Test matrix_multi question with settings { min: 0, max: 10 }
+  const matrixMultiQ = {
+    id: 'q-matrix-multi-1',
+    type: 'matrix_multi',
+    title: 'Aqrotexniki tədbirlər',
+    required: false,
+    rows: ['Yaz səpini dövrü', 'Yay suvarma dövrü'],
+    columns: ['Mineral gübrə', 'Üzvi gübrə'],
+    settings: { min: 0, max: 10 }
+  };
+  const matrixVal = {
+    'Yaz səpini dövrü': ['Mineral gübrə', 'Üzvi gübrə']
+  };
+  const clientErr = sandbox.validateAnswer(matrixMultiQ, matrixVal);
+  assert.strictEqual(
+    clientErr,
+    '',
+    `matrix_multi answer must NOT trigger numeric error, received: ${clientErr}`
+  );
+
+  // Test other non-numeric types like matrix, single, multiple with lingering min/max settings
+  const matrixSingleQ = {
+    id: 'q-matrix-1',
+    type: 'matrix',
+    title: 'Xidmət səviyyəsi',
+    required: false,
+    rows: ['Texniki xidmət'],
+    columns: ['Yaxşı'],
+    settings: { min: 0, max: 10 }
+  };
+  assert.strictEqual(sandbox.validateAnswer(matrixSingleQ, { 'Texniki xidmət': 'Yaxşı' }), '');
+
+  const multiQ = {
+    id: 'q-multi-1',
+    type: 'multiple',
+    title: 'Bitkilər',
+    required: false,
+    options: [{ label: 'Kartof' }],
+    settings: { min: 0, max: 10 }
+  };
+  assert.strictEqual(sandbox.validateAnswer(multiQ, ['Kartof']), '');
+
+  // 2. Client verification of renderAnswer for image_ab and text_ab
+  const raMatch = appJs.match(/function renderAnswer\(q,answers=\{\},preview=false\)\{[\s\S]*?\n\}/);
+  assert.ok(raMatch, 'renderAnswer function found in app.js');
+  vm.runInContext(raMatch[0], sandbox);
+
+  const imgAbQ = {
+    id: 'q-ab-img',
+    type: 'image_ab',
+    title: 'Vizual A/B Testi',
+    options: [
+      { id: 'opt-a', label: 'Dizayn A (Minimal)', image: 'data:image/svg+xml;a' },
+      { id: 'opt-b', label: 'Dizayn B (Milli)', image: 'data:image/svg+xml;b' }
+    ],
+    settings: {}
+  };
+  const imgHtml = sandbox.renderAnswer(imgAbQ, {});
+  assert.ok(imgHtml.includes('VİZUAL VARIANT A'), 'renderAnswer includes Visual Variant A');
+  assert.ok(imgHtml.includes('VİZUAL VARIANT B'), 'renderAnswer includes Visual Variant B');
+  assert.ok(imgHtml.includes('data:image/svg+xml;a'), 'renderAnswer contains Variant A image');
+  assert.ok(imgHtml.includes('data:image/svg+xml;b'), 'renderAnswer contains Variant B image');
+  assert.ok(imgHtml.includes('Dizayn A (Minimal)'), 'renderAnswer contains Variant A label');
+  assert.ok(imgHtml.includes('Dizayn B (Milli)'), 'renderAnswer contains Variant B label');
+
+  const textAbQ = {
+    id: 'q-ab-txt',
+    type: 'text_ab',
+    title: 'Mətn A/B Testi',
+    options: [
+      { id: 'opt-a', label: 'Şüar A: Müasir aqrar' },
+      { id: 'opt-b', label: 'Şüar B: Bol məhsul' }
+    ],
+    settings: {}
+  };
+  const txtHtml = sandbox.renderAnswer(textAbQ, {});
+  assert.ok(txtHtml.includes('MƏTN VARIANTI A'), 'renderAnswer includes Text Variant A');
+  assert.ok(txtHtml.includes('MƏTN VARIANTI B'), 'renderAnswer includes Text Variant B');
+  assert.ok(txtHtml.includes('Şüar A: Müasir aqrar'), 'renderAnswer contains text A');
+  assert.ok(txtHtml.includes('Şüar B: Bol məhsul'), 'renderAnswer contains text B');
+
+  // 3. Server Integration test: Submit response to matrix_multi and image_ab
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'matrix-and-ab-test-'));
+  const { base, stop } = await startServer(tmpDir);
+
+  try {
+    const admin = await login(base, 'admin', 'UnitTest@2026!');
+    const surveyPayload = {
+      title: 'Matris və A/B Sorğusu',
+      description: 'Avtomatlaşdırılmış test',
+      category: 'Test',
+      status: 'active',
+      access: 'public',
+      estimatedMinutes: 3,
+      sections: [{ id: 'sec-1', title: 'Əsas Bölmə', description: '' }],
+      questions: [
+        {
+          id: 'q-matrix-test',
+          sectionId: 'sec-1',
+          type: 'matrix_multi',
+          title: 'Çoxseçimli matris sualı',
+          required: true,
+          rows: ['Sətir 1', 'Sətir 2'],
+          columns: ['Sütun 1', 'Sütun 2'],
+          settings: { min: 0, max: 10 } // lingering min/max shouldn't break validation
+        },
+        {
+          id: 'q-img-ab-test',
+          sectionId: 'sec-1',
+          type: 'image_ab',
+          title: 'Şəkil A/B testi sualı',
+          required: true,
+          options: [
+            { id: 'opt-1', label: 'Dizayn A', image: 'data:image/svg+xml;demoA' },
+            { id: 'opt-2', label: 'Dizayn B', image: 'data:image/svg+xml;demoB' }
+          ],
+          settings: {}
+        }
+      ]
+    };
+
+    const sRes = await fetch(`${base}/api/surveys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify(surveyPayload)
+    });
+    assert.equal(sRes.status, 201);
+    const sJson = await sRes.json();
+    const surveyId = sJson.survey.id;
+
+    // Submit public response with matrix_multi object answer
+    const submitRes = await fetch(`${base}/api/public/surveys/${surveyId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        respondentName: 'Test Respondent',
+        answers: {
+          'q-matrix-test': {
+            'Sətir 1': ['Sütun 1'],
+            'Sətir 2': ['Sütun 2']
+          },
+          'q-img-ab-test': { variant: 'Dizayn B', answer: 'Dizayn B' }
+        },
+        durationSec: 15
+      })
+    });
+    assert.equal(submitRes.status, 201, 'Public survey response submitted successfully with matrix_multi and image_ab');
+    const subJson = await submitRes.json();
+    assert.equal(subJson.ok, true);
+
+    // Verify report reflects answers
+    const repRes = await fetch(`${base}/api/reports/${surveyId}`, {
+      headers: { Cookie: admin.cookie }
+    });
+    assert.equal(repRes.status, 200);
+    const repJson = await repRes.json();
+    assert.equal(repJson.completed, 1);
+  } finally {
+    stop();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+
 
 
 

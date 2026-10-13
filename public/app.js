@@ -182,12 +182,13 @@ function validateQuestionAnswer(q,val){
   }
 
   // Numeric and Unit validations
-  const isNumType=['number','currency','percentage','slider','rating'].includes(q.type);
-  const hasUnit=s.unit&&s.unit!=='none';
-  const hasNumMin=s.min!==undefined&&s.min!==''&&s.min!==null;
-  const hasNumMax=s.max!==undefined&&s.max!==''&&s.max!==null;
+  const isNumericType=['number','currency','percentage','slider','rating','stars','nps'].includes(q.type);
+  const isNonNumeric=['single','multiple','dropdown','yesno','image_choice','matrix','matrix_multi','matrix_dropdown','matrix_text','fill_blank','ranking','bestworst','likert','file','date','time','datetime','duration','consent','text_ab','image_ab','name','address','paragraph','multitext'].includes(q.type);
+  const hasUnit=s.unit&&s.unit!=='none'&&!isNonNumeric;
+  const hasNumMin=isNumericType&&s.min!==undefined&&s.min!==''&&s.min!==null;
+  const hasNumMax=isNumericType&&s.max!==undefined&&s.max!==''&&s.max!==null;
 
-  if(isNumType||hasUnit||hasNumMin||hasNumMax){
+  if(!isNonNumeric&&(isNumericType||hasUnit)){
     const num=Number(val);
     if(!Number.isFinite(num)){
       return customErr||`${q.title} — düzgün rəqəm dəyəri daxil edilməlidir.`;
@@ -1180,7 +1181,7 @@ function newQuestion(type,sectionId){
     options:[],
     rows:[],
     columns:[],
-    settings:{min:0,max:10},
+    settings:{},
     condition:null
   };
 
@@ -1786,29 +1787,120 @@ function renderAnswer(q,answers={},preview=false){
   if(['single','multiple','yesno','image_choice'].includes(type))html=options(type==='multiple',type==='image_choice');
   else if(type==='dropdown')html=`<select class="answer-input" data-answer="${questionId}" ${disabled}><option value="">Variant seçin...</option>${opts.map(o=>`<option value="${esc(o.label)}" ${checked(o.label)?'selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
   else if(type==='image_ab'){
-    const variant=variantFor(q,'seed');
-    const imgSrc=variant?.image||DEMO_IMG_A;
+    const abOptions = opts.length >= 2 ? opts : [
+      { id: 'opt-a', label: 'Dizayn A (Müasir minimal üslub)', image: DEMO_IMG_A },
+      { id: 'opt-b', label: 'Dizayn B (Ənənəvi milli ornamentli üslub)', image: DEMO_IMG_B }
+    ];
+    const isOptionSelected = (optLabel) => {
+      if (!val) return false;
+      if (typeof val === 'string') return val === optLabel;
+      if (typeof val === 'object') return val.variant === optLabel || val.answer === optLabel;
+      return false;
+    };
+
     html=`
-      <div class="ab-card-visual" style="margin:0 0 12px;padding:14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;text-align:center">
-        <div style="display:inline-block;padding:2px 10px;font-size:11px;font-weight:700;color:#6366f1;background:#eef2ff;border-radius:12px;margin-bottom:10px">🖼️ A/B VİZUAL DİZAYN VƏ ETİKET TESTİ</div>
-        <div style="margin:8px 0"><img src="${esc(imgSrc)}" alt="${esc(variant?.label||'Dizayn')}" style="max-width:100%;max-height:220px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.08);object-fit:contain"></div>
-        <div style="font-weight:600;font-size:13.5px;color:#1e293b;margin-top:6px">${esc(variant?.label||'Vizual Variant')}</div>
+      <div class="ab-comparison-wrapper" style="margin:0 0 16px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <span style="display:inline-block;padding:3px 12px;font-size:11px;font-weight:700;color:#6366f1;background:#eef2ff;border-radius:14px">🖼️ A/B VİZUAL MÜQAYİSƏ TESTİ</span>
+          <span style="font-size:12px;color:#64748b">Variant A və Variant B dizaynlarını müqayisə edin və seçim edin</span>
+        </div>
+        <div class="ab-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-bottom:14px">
+          ${abOptions.map((opt, optIdx) => {
+            const letter = optIdx === 0 ? 'A' : optIdx === 1 ? 'B' : String.fromCharCode(65 + optIdx);
+            const badgeColor = optIdx === 0 ? '#4f46e5' : '#db2777';
+            const badgeBg = optIdx === 0 ? '#eef2ff' : '#fdf2f8';
+            const imgSrc = opt.image || (optIdx === 0 ? DEMO_IMG_A : DEMO_IMG_B);
+            const isSel = isOptionSelected(opt.label);
+            return `
+              <div class="ab-card-visual ${isSel ? 'selected-ab' : ''}" style="padding:14px;background:#fff;border:2px solid ${isSel ? badgeColor : '#e2e8f0'};border-radius:12px;text-align:center;box-shadow:0 3px 10px rgba(0,0,0,0.04);transition:.2s">
+                <div style="display:inline-block;padding:3px 12px;font-size:11.5px;font-weight:800;color:${badgeColor};background:${badgeBg};border-radius:14px;margin-bottom:10px">
+                  ${letter === 'A' ? '🅰️' : '🅱️'} VİZUAL VARIANT ${letter}
+                </div>
+                <div style="height:190px;display:flex;align-items:center;justify-content:center;background:#f8fafc;border-radius:8px;overflow:hidden;margin-bottom:10px;border:1px solid #edf2f7">
+                  <img src="${esc(imgSrc)}" alt="${esc(opt.label || 'Variant ' + letter)}" style="max-width:100%;max-height:100%;object-fit:contain">
+                </div>
+                <div style="font-weight:700;font-size:13.5px;color:#1e293b">${esc(opt.label || 'Variant ' + letter)}</div>
+              </div>
+            `;
+          }).join('')}
+        </div>
       </div>
       <div class="choice-grid">
-        <label class="choice-card ${(val?.answer==='Bəli'||checked('Bəli'))?'selected':''}"><input type="radio" name="ans_${questionId}" data-answer="${questionId}" value="Bəli" ${(val?.answer==='Bəli'||checked('Bəli'))?'checked':''} ${disabled}> Bəyəndim (Müsbət)</label>
-        <label class="choice-card ${(val?.answer==='Xeyr'||checked('Xeyr'))?'selected':''}"><input type="radio" name="ans_${questionId}" data-answer="${questionId}" value="Xeyr" ${(val?.answer==='Xeyr'||checked('Xeyr'))?'checked':''} ${disabled}> Bəyənmədim (Mənfi)</label>
+        ${abOptions.map((opt, optIdx) => {
+          const letter = optIdx === 0 ? 'A' : optIdx === 1 ? 'B' : String.fromCharCode(65 + optIdx);
+          const isSel = isOptionSelected(opt.label);
+          return `
+            <label class="choice-card ${isSel ? 'selected' : ''}">
+              <input type="radio" name="ans_${questionId}" data-answer="${questionId}" data-variant="${esc(opt.label)}" value="${esc(opt.label)}" ${isSel ? 'checked' : ''} ${disabled}>
+              <span>${letter === 'A' ? '🅰️' : '🅱️'} <b>${letter} Variantını bəyənirəm:</b> ${esc(opt.label)}</span>
+            </label>
+          `;
+        }).join('')}
+        <label class="choice-card ${isOptionSelected('Hər iki variantı bəyənirəm') ? 'selected' : ''}">
+          <input type="radio" name="ans_${questionId}" data-answer="${questionId}" data-variant="Hər iki variant" value="Hər iki variantı bəyənirəm" ${isOptionSelected('Hər iki variantı bəyənirəm') ? 'checked' : ''} ${disabled}>
+          <span>⚖️ Hər iki variantı bəyənirəm</span>
+        </label>
+        <label class="choice-card ${isOptionSelected('Heç birini bəyənmirəm') ? 'selected' : ''}">
+          <input type="radio" name="ans_${questionId}" data-answer="${questionId}" data-variant="Heç biri" value="Heç birini bəyənmirəm" ${isOptionSelected('Heç birini bəyənmirəm') ? 'checked' : ''} ${disabled}>
+          <span>✕ Heç birini bəyənmirəm</span>
+        </label>
       </div>`;
   }
   else if(type==='text_ab'){
-    const variant=variantFor(q,'seed');
+    const abOptions = opts.length >= 2 ? opts : [
+      { id: 'opt-a', label: 'Variant A: "Kənd təsərrüfatında innovativ texnologiyalar və bol məhsul"' },
+      { id: 'opt-b', label: 'Variant B: "Torpağın bərəkəti, zəhmətin qüdrəti: gələcəyə güvənlə addımla"' }
+    ];
+    const isOptionSelected = (optLabel) => {
+      if (!val) return false;
+      if (typeof val === 'string') return val === optLabel;
+      if (typeof val === 'object') return val.variant === optLabel || val.answer === optLabel;
+      return false;
+    };
+
     html=`
-      <div class="ab-card-text" style="margin:0 0 12px;padding:16px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px">
-        <div style="display:inline-block;padding:2px 10px;font-size:11px;font-weight:700;color:#059669;background:#ecfdf5;border-radius:12px;margin-bottom:8px">📝 A/B MƏTN VƏ ŞÜAR TESTİ</div>
-        <div style="font-size:14.5px;font-weight:500;line-height:1.5;color:#1e293b;border-left:3px solid #10b981;padding-left:12px;margin:6px 0">"${esc(variant?.label||'Mətn variantı yoxdur')}"</div>
+      <div class="ab-comparison-wrapper" style="margin:0 0 16px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+          <span style="display:inline-block;padding:3px 12px;font-size:11px;font-weight:700;color:#059669;background:#ecfdf5;border-radius:14px">📝 A/B MƏTN VƏ ŞÜAR MÜQAYİSƏ TESTİ</span>
+          <span style="font-size:12px;color:#64748b">Variant A və Variant B şüarlarını nəzərdən keçirin və uyğun olanı seçin</span>
+        </div>
+        <div class="ab-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-bottom:14px">
+          ${abOptions.map((opt, optIdx) => {
+            const letter = optIdx === 0 ? 'A' : optIdx === 1 ? 'B' : String.fromCharCode(65 + optIdx);
+            const borderCol = optIdx === 0 ? '#10b981' : '#8b5cf6';
+            const badgeBg = optIdx === 0 ? '#ecfdf5' : '#f5f3ff';
+            const badgeCol = optIdx === 0 ? '#059669' : '#7c3aed';
+            const isSel = isOptionSelected(opt.label);
+            return `
+              <div class="ab-card-text ${isSel ? 'selected-ab' : ''}" style="padding:16px;background:#fff;border:2px solid ${isSel ? borderCol : '#e2e8f0'};border-radius:12px;box-shadow:0 3px 10px rgba(0,0,0,0.04);transition:.2s">
+                <div style="display:inline-block;padding:3px 12px;font-size:11.5px;font-weight:800;color:${badgeCol};background:${badgeBg};border-radius:14px;margin-bottom:10px">
+                  ${letter === 'A' ? '🅰️' : '🅱️'} MƏTN VARIANTI ${letter}
+                </div>
+                <div style="font-size:14px;font-weight:550;line-height:1.5;color:#1e293b;border-left:3px solid ${borderCol};padding-left:12px;margin:6px 0">"${esc(opt.label)}"</div>
+              </div>
+            `;
+          }).join('')}
+        </div>
       </div>
       <div class="choice-grid">
-        <label class="choice-card ${(val?.answer==='Bəli'||checked('Bəli'))?'selected':''}"><input type="radio" name="ans_${questionId}" data-answer="${questionId}" value="Bəli" ${(val?.answer==='Bəli'||checked('Bəli'))?'checked':''} ${disabled}> Uyğundur (Bəyəndim)</label>
-        <label class="choice-card ${(val?.answer==='Xeyr'||checked('Xeyr'))?'selected':''}"><input type="radio" name="ans_${questionId}" data-answer="${questionId}" value="Xeyr" ${(val?.answer==='Xeyr'||checked('Xeyr'))?'checked':''} ${disabled}> Uyğun deyil (Bəyənmədim)</label>
+        ${abOptions.map((opt, optIdx) => {
+          const letter = optIdx === 0 ? 'A' : optIdx === 1 ? 'B' : String.fromCharCode(65 + optIdx);
+          const isSel = isOptionSelected(opt.label);
+          return `
+            <label class="choice-card ${isSel ? 'selected' : ''}">
+              <input type="radio" name="ans_${questionId}" data-answer="${questionId}" data-variant="${esc(opt.label)}" value="${esc(opt.label)}" ${isSel ? 'checked' : ''} ${disabled}>
+              <span>${letter === 'A' ? '🅰️' : '🅱️'} <b>${letter} Variantı uyğundur:</b> ${esc(opt.label)}</span>
+            </label>
+          `;
+        }).join('')}
+        <label class="choice-card ${isOptionSelected('Hər iki variant uyğundur') ? 'selected' : ''}">
+          <input type="radio" name="ans_${questionId}" data-answer="${questionId}" data-variant="Hər iki variant" value="Hər iki variant uyğundur" ${isOptionSelected('Hər iki variant uyğundur') ? 'checked' : ''} ${disabled}>
+          <span>⚖️ Hər iki variant uyğundur</span>
+        </label>
+        <label class="choice-card ${isOptionSelected('Heç biri uyğun deyil') ? 'selected' : ''}">
+          <input type="radio" name="ans_${questionId}" data-answer="${questionId}" data-variant="Heç biri" value="Heç biri uyğun deyil" ${isOptionSelected('Heç biri uyğun deyil') ? 'checked' : ''} ${disabled}>
+          <span>✕ Heç biri uyğun deyil</span>
+        </label>
       </div>`;
   }
   else if(['rating','nps','likert'].includes(type))html=`<div class="rating-group">${Array.from({length:Math.min(21,max-min+1)},(_,i)=>min+i).map(n=>`<button type="button" class="rating-btn ${Number(val)===n?'active':''}" data-action="numeric-answer" data-qid="${questionId}" data-value="${n}" ${disabled}>${n}</button>`).join('')}</div>${type==='nps'?'<div class="range-row mt12" style="max-width:445px"><span>Heç tövsiyə etmərəm</span><span>Mütləq tövsiyə edərəm</span></div>':''}`;
@@ -1860,11 +1952,14 @@ function renderAnswer(q,answers={},preview=false){
   }
   const hints=[];
   const unitStr=getQuestionUnit(q);
-  if(q.settings?.min!==undefined&&q.settings?.min!==''&&q.settings?.min!==null){
-    hints.push(`Minimum: <b>${esc(q.settings.min)}${unitStr?' '+esc(unitStr):''}</b>`);
-  }
-  if(q.settings?.max!==undefined&&q.settings?.max!==''&&q.settings?.max!==null){
-    hints.push(`Maksimum: <b>${esc(q.settings.max)}${unitStr?' '+esc(unitStr):''}</b>`);
+  const isNumericForHint=['number','currency','percentage','slider','rating','stars','nps'].includes(q.type);
+  if(isNumericForHint){
+    if(q.settings?.min!==undefined&&q.settings?.min!==''&&q.settings?.min!==null){
+      hints.push(`Minimum: <b>${esc(q.settings.min)}${unitStr?' '+esc(unitStr):''}</b>`);
+    }
+    if(q.settings?.max!==undefined&&q.settings?.max!==''&&q.settings?.max!==null){
+      hints.push(`Maksimum: <b>${esc(q.settings.max)}${unitStr?' '+esc(unitStr):''}</b>`);
+    }
   }
   if(q.settings?.textRule&&q.settings.textRule!=='none'){
     const ruleObj=TEXT_RULES.find(r=>r.id===q.settings.textRule);
@@ -2144,7 +2239,7 @@ function updateAnswer(node){
     } else if(node.type==='range'||['number','currency','percentage'].includes(q.type)){
       v=node.value===''?'':Number(node.value);
     } else if(q.type==='text_ab'||q.type==='image_ab'){
-      v={variant:variantFor(q,'public')?.label||'',answer:node.value};
+      v={variant:node.dataset.variant||node.value,answer:node.value};
     } else {
       v=node.value;
     }
@@ -2176,7 +2271,7 @@ function updateAnswer(node){
     if(q.type==='consent')v=node.checked?'Bəli':'';
     else v=$$(`input[data-answer="${id}"]:checked`).map(x=>x.value);
   } else if(node.type==='range'||['number','currency','percentage'].includes(q.type))v=node.value===''?'':Number(node.value);
-  else if(q.type==='text_ab'||q.type==='image_ab')v={variant:variantFor(q,'seed')?.label||'',answer:node.value};
+  else if(q.type==='text_ab'||q.type==='image_ab')v={variant:node.dataset.variant||node.value,answer:node.value};
   else v=node.value;
   state.interview.answers[id]=v;
   state.dirty=true;
