@@ -719,5 +719,200 @@ test('Report leader definition fix, measurement units, numeric thresholds, and t
   }
 });
 
+test('New question types: Fill-in-the-blank (Boşluq doldurma) and Matrix Text Grid (Mətnli matris cədvəli)', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sorgu-newtypes-'));
+  const { base, stop } = await startServer(dataDir);
+  try {
+    const appJs = fs.readFileSync(path.join(project, 'public/app.js'), 'utf8');
+    const styleCss = fs.readFileSync(path.join(project, 'public/style.css'), 'utf8');
+
+    // 1. Verify UI library and styling registrations
+    assert.ok(appJs.includes("'fill_blank'"), 'app.js includes fill_blank type in TYPES');
+    assert.ok(appJs.includes("'matrix_text'"), 'app.js includes matrix_text type in TYPES');
+    assert.ok(styleCss.includes('.fillblank-input'), 'style.css includes .fillblank-input');
+    assert.ok(styleCss.includes('.matrix-cell-input'), 'style.css includes .matrix-cell-input');
+
+    const admin = await login(base, 'admin', '1234567890');
+
+    // 2. Create survey with both new types
+    const opt1Id = 'opt-kartof-yaz';
+    const opt2Id = 'opt-kartof-payiz';
+    const surveyPayload = {
+      title: 'Kartof Əkini və Məhsuldarlıq Sorğusu',
+      category: 'Kənd təsərrüfatı',
+      status: 'active',
+      access: 'public',
+      sections: [{ id: 'sec-agri', title: 'Əkin Statistikası' }],
+      questions: [
+        {
+          id: 'q-blank',
+          sectionId: 'sec-agri',
+          type: 'fill_blank',
+          title: 'Əkin cümlələrini tamamlayın',
+          required: true,
+          options: [
+            { id: opt1Id, label: 'Yaz zamanı ____ kq kartof əkmişəm.' },
+            { id: opt2Id, label: 'Payız yığımında ____ ton məhsul yığmışam.' }
+          ]
+        },
+        {
+          id: 'q-grid',
+          sectionId: 'sec-agri',
+          type: 'matrix_text',
+          title: 'Hansı sort kartoflardan əkmisiniz?',
+          required: true,
+          rows: ['Bakı kartofu', 'Cəlilabad kartofu', 'Gədəbəy kartofu'],
+          columns: ['0-100', '100-200', '200-300']
+        }
+      ]
+    };
+
+    const sRes = await fetch(`${base}/api/surveys`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify(surveyPayload)
+    });
+    assert.equal(sRes.status, 201);
+    const sJson = await sRes.json();
+    const surveyId = sJson.survey.id;
+    assert.equal(sJson.survey.questions[0].type, 'fill_blank');
+    assert.equal(sJson.survey.questions[1].type, 'matrix_text');
+
+    // 3. Validation failure: blank missing in required fill_blank
+    const failBlankRes = await fetch(`${base}/api/surveys/${surveyId}/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({
+        status: 'completed',
+        answers: {
+          'q-blank': { [opt1Id]: '450' }, // missing opt2Id
+          'q-grid': {
+            'Bakı kartofu': { '0-100': '50', '100-200': '80', '200-300': '110' },
+            'Cəlilabad kartofu': { '0-100': '20', '100-200': '40', '200-300': '60' },
+            'Gədəbəy kartofu': { '0-100': '90', '100-200': '120', '200-300': '150' }
+          }
+        },
+        durationSec: 35
+      })
+    });
+    assert.equal(failBlankRes.status, 400);
+    const failBlankJson = await failBlankRes.json();
+    assert.ok(failBlankJson.error.includes('bütün boşluqları doldurun'), 'Blank validation triggered');
+
+    // 4. Validation failure: required matrix_text row empty
+    const failGridRes = await fetch(`${base}/api/surveys/${surveyId}/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({
+        status: 'completed',
+        answers: {
+          'q-blank': { [opt1Id]: '450', [opt2Id]: '15' },
+          'q-grid': {
+            'Bakı kartofu': { '0-100': '50' },
+            'Cəlilabad kartofu': { '100-200': '70' }
+            // 'Gədəbəy kartofu' missing
+          }
+        },
+        durationSec: 40
+      })
+    });
+    assert.equal(failGridRes.status, 400);
+    const failGridJson = await failGridRes.json();
+    assert.ok(failGridJson.error.includes('bütün matris sətirlərini cavablandırın'), 'Matrix row validation triggered');
+
+    // 5. Successful submission with complete answers
+    const okRes = await fetch(`${base}/api/surveys/${surveyId}/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({
+        status: 'completed',
+        respondentName: 'Həsən Qasımov',
+        respondentPhone: '+994503332211',
+        answers: {
+          'q-blank': {
+            [opt1Id]: '1200',
+            [opt2Id]: '35'
+          },
+          'q-grid': {
+            'Bakı kartofu': { '0-100': '500', '100-200': '850', '200-300': '1200' },
+            'Cəlilabad kartofu': { '0-100': '300', '100-200': '600', '200-300': '900' },
+            'Gədəbəy kartofu': { '0-100': '700', '100-200': '1100', '200-300': '1500' }
+          }
+        },
+        durationSec: 75
+      })
+    });
+    assert.equal(okRes.status, 201);
+    const okJson = await okRes.json();
+    assert.equal(okJson.ok, true);
+    const respId = okJson.response.id;
+
+    // 6. Verify Excel / CSV export includes separate columns for each matrix cell and blank option
+    const expRes = await fetch(`${base}/api/export/${surveyId}?format=excel`, {
+      headers: { Cookie: admin.cookie }
+    });
+    assert.equal(expRes.status, 200);
+    const expText = await expRes.text();
+    assert.ok(expText.includes('Bakı kartofu - 0-100'), 'Excel contains Bakı kartofu - 0-100 column');
+    assert.ok(expText.includes('Gədəbəy kartofu - 200-300'), 'Excel contains Gədəbəy kartofu - 200-300 column');
+    assert.ok(expText.includes('1500'), 'Excel contains value 1500 for Gədəbəy cell');
+    assert.ok(expText.includes('Yaz zamanı ____ kq kartof əkmişəm.'), 'Excel contains fill blank column title');
+    assert.ok(expText.includes('1200'), 'Excel contains filled value 1200');
+
+    // 7. Verify Admin/Editor can modify response sheet (PUT /api/responses/:id)
+    const updateRes = await fetch(`${base}/api/responses/${respId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({
+        respondentName: 'Həsən Qasımov (Redaktə edildi)',
+        answers: {
+          'q-blank': {
+            [opt1Id]: '1500',
+            [opt2Id]: '45'
+          },
+          'q-grid': {
+            'Bakı kartofu': { '0-100': '550', '100-200': '900', '200-300': '1300' },
+            'Cəlilabad kartofu': { '0-100': '350', '100-200': '650', '200-300': '950' },
+            'Gədəbəy kartofu': { '0-100': '750', '100-200': '1150', '200-300': '1600' }
+          }
+        }
+      })
+    });
+    assert.equal(updateRes.status, 200);
+    const updateJson = await updateRes.json();
+    assert.equal(updateJson.response.contactName, 'Həsən Qasımov (Redaktə edildi)');
+    assert.equal(updateJson.response.answers['q-blank'][opt1Id], '1500');
+    assert.equal(updateJson.response.answers['q-grid']['Gədəbəy kartofu']['200-300'], '1600');
+
+    // 8. Verify public survey submission works without auth token
+    const publicSubmitRes = await fetch(`${base}/api/public/surveys/${surveyId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        respondentName: 'İctimai İştirakçı',
+        answers: {
+          'q-blank': {
+            [opt1Id]: '900',
+            [opt2Id]: '22'
+          },
+          'q-grid': {
+            'Bakı kartofu': { '0-100': '100', '100-200': '200', '200-300': '300' },
+            'Cəlilabad kartofu': { '0-100': '400', '100-200': '500', '200-300': '600' },
+            'Gədəbəy kartofu': { '0-100': '700', '100-200': '800', '200-300': '900' }
+          }
+        },
+        durationSec: 45
+      })
+    });
+    assert.equal(publicSubmitRes.status, 201);
+    const pubJson = await publicSubmitRes.json();
+    assert.equal(pubJson.ok, true);
+  } finally {
+    stop();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+
 
 

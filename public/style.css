@@ -608,3 +608,122 @@
   letter-spacing: .5px !important;
 }
 
+/* FILL-IN-THE-BLANK (BOŞLUQ DOLDURMA) */
+.fillblank-container {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  margin-top: 6px !important;
+  max-width: 720px !important;
+}
+.fillblank-row {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 12px 16px !important;
+  background: #ffffff !important;
+  border: 1.5px solid #e2e8f0 !important;
+  border-radius: 12px !important;
+  font-size: 14px !important;
+  color: #1e293b !important;
+  line-height: 1.6 !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+.fillblank-row:focus-within {
+  border-color: #6366f1 !important;
+  box-shadow: 0 3px 12px rgba(99, 102, 241, 0.12) !important;
+  background: #faf5ff !important;
+}
+.fillblank-text {
+  display: inline !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  color: #1e293b !important;
+  line-height: 2 !important;
+}
+.fillblank-input {
+  display: inline-block !important;
+  vertical-align: middle !important;
+  width: auto !important;
+  min-width: 130px !important;
+  max-width: 220px !important;
+  height: 38px !important;
+  padding: 4px 12px !important;
+  margin: 0 6px !important;
+  border: 2px dashed #6366f1 !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  color: #312e81 !important;
+  text-align: center !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+.fillblank-input:focus {
+  border-style: solid !important;
+  border-color: #4f46e5 !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 3.5px rgba(99, 102, 241, 0.2) !important;
+  outline: none !important;
+}
+.fillblank-input:not(:placeholder-shown) {
+  border-style: solid !important;
+  border-color: #6366f1 !important;
+  background: #f5f3ff !important;
+}
+
+/* MATRIX TEXT (MƏTNLİ MATRİS CƏDVƏLİ) */
+.matrix-text-table {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  background: #ffffff !important;
+  border: 1.5px solid #e2e8f0 !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+}
+.matrix-text-table th {
+  background: #f8fafc !important;
+  color: #334155 !important;
+  font-weight: 800 !important;
+  font-size: 12px !important;
+  padding: 12px 14px !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+  text-align: center !important;
+}
+.matrix-text-table th:first-child {
+  text-align: left !important;
+}
+.matrix-cell-td {
+  padding: 8px 10px !important;
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+.matrix-cell-input {
+  width: 100% !important;
+  min-width: 95px !important;
+  max-width: 170px !important;
+  height: 38px !important;
+  margin: 0 auto !important;
+  padding: 6px 10px !important;
+  border: 1.5px solid #cbd5e1 !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #1e293b !important;
+  text-align: center !important;
+  transition: all 0.18s ease !important;
+}
+.matrix-cell-input:focus {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3.5px rgba(99, 102, 241, 0.2) !important;
+  outline: none !important;
+  background: #faf5ff !important;
+}
+.matrix-cell-input:not(:placeholder-shown) {
+  border-color: #818cf8 !important;
+  background: #fdfcff !important;
+}
+
+

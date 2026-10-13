@@ -46,12 +46,12 @@ function log(req,user,action,entity,details=''){
   get().audit=get().audit.slice(0,3000);
 }
 function surveySafe(s){return s;}
-function validateSurvey(input,base){const allowed=['single','multiple','dropdown','yesno','image_choice','rating','stars','slider','ranking','bestworst','matrix','matrix_multi','matrix_dropdown','nps','likert','short_text','paragraph','number','currency','percentage','email','phone','date','time','datetime','name','address','multitext','file','consent','text_ab','image_ab'];
+function validateSurvey(input,base){const allowed=['single','multiple','dropdown','yesno','image_choice','rating','stars','slider','ranking','bestworst','matrix','matrix_multi','matrix_dropdown','matrix_text','fill_blank','nps','likert','short_text','paragraph','number','currency','percentage','email','phone','date','time','datetime','name','address','multitext','file','consent','text_ab','image_ab'];
 const sections=asArray(input.sections).slice(0,60).map(s=>({id:safeId(s.id)?s.id:uid(),title:cleanText(s.title,160)||'Yeni bölmə',description:cleanText(s.description,500)}));
 if(!sections.length)sections.push({id:uid(),title:'Əsas bölmə',description:''});
 const questions=asArray(input.questions).slice(0,250).map(q=>({id:safeId(q.id)?q.id:uid(),sectionId:sections.some(s=>s.id===q.sectionId)?q.sectionId:sections[0].id,type:allowed.includes(q.type)?q.type:'short_text',title:cleanText(q.title,400)||'Yeni sual',description:cleanText(q.description,1000),required:!!q.required,options:asArray(q.options).slice(0,80).map(o=>({id:safeId(o.id)?o.id:uid(),label:cleanText(o.label,200),image:cleanText(o.image,1500)})),rows:asArray(q.rows).slice(0,35).map(x=>cleanText(x,180)),columns:asArray(q.columns).slice(0,35).map(x=>cleanText(x,180)),settings:typeof q.settings==='object'&&q.settings&&!Array.isArray(q.settings)?JSON.parse(JSON.stringify(q.settings)).constructor===Object?Object.fromEntries(Object.entries(q.settings).slice(0,30).map(([k,v])=>[cleanText(k,50),typeof v==='string'?cleanText(v,500):typeof v==='number'?Math.max(-1000000000,Math.min(1000000000,v)):typeof v==='boolean'?v:null])):{}:{},condition:q.condition&&safeId(q.condition.questionId)&&['equals','not_equals','contains','not_empty','empty'].includes(q.condition.operator)?{questionId:q.condition.questionId,operator:q.condition.operator,value:cleanText(q.condition.value,500)}:null}));
 return {...base,title:cleanText(input.title,180)||'Adsız sorğu',description:cleanText(input.description,1500),category:cleanText(input.category,80)||'Ümumi',status:['draft','active','paused','archived'].includes(input.status)?input.status:'draft',access:input.access==='private'?'private':'public',language:'az',estimatedMinutes:Math.min(180,Math.max(1,Number(input.estimatedMinutes)||5)),accent:/^#[0-9a-fA-F]{6}$/.test(input.accent||'')?input.accent:'#6756ea',sections,questions,updatedAt:iso()};}
-function visible(q,answers){if(!q.condition)return true;const val=answers[q.condition.questionId];const v=Array.isArray(val)?val.join(', '):val&&typeof val==='object'?Object.values(val).join(', '):String(val??'');switch(q.condition.operator){case 'equals':return Array.isArray(val)?val.includes(q.condition.value):v===q.condition.value;case 'not_equals':return v!==q.condition.value;case 'contains':return v.includes(q.condition.value);case 'not_empty':return v.trim()!=='';case 'empty':return v.trim()==='';}return true;}
+function visible(q,answers){if(!q.condition)return true;const val=answers[q.condition.questionId];const v=Array.isArray(val)?val.join(', '):val&&typeof val==='object'?Object.values(val).flatMap(x=>typeof x==='object'&&x?Object.values(x):x).join(', '):String(val??'');switch(q.condition.operator){case 'equals':return Array.isArray(val)?val.includes(q.condition.value):v===q.condition.value;case 'not_equals':return v!==q.condition.value;case 'contains':return v.includes(q.condition.value);case 'not_empty':return v.trim()!=='';case 'empty':return v.trim()==='';}return true;}
 function validateQuestionAnswer(q,val){
   if(!q)return null;
   const s=q.settings||{};
@@ -59,13 +59,26 @@ function validateQuestionAnswer(q,val){
   const customErr=s.errorMessage?String(s.errorMessage).trim():'';
   const isEmpty=val===undefined||val===null||val===''||
     (Array.isArray(val)&&!val.length)||
-    (typeof val==='object'&&!Array.isArray(val)&&!Object.values(val).some(x=>Array.isArray(x)?x.length:(x!==''&&x!=null)));
+    (typeof val==='object'&&!Array.isArray(val)&&!Object.values(val).some(x=>{
+      if(Array.isArray(x)) return x.length>0;
+      if(typeof x==='object'&&x!==null) return Object.values(x).some(y=>y!==''&&y!=null);
+      return x!==''&&x!=null;
+    }));
   if(isReq&&isEmpty)return q.title+' — cavab tələb olunur.';
   if(isEmpty)return null;
 
-  if(q.type.startsWith('matrix')&&isReq&&Array.isArray(q.rows)){
+  if(q.type==='matrix_text'&&isReq&&Array.isArray(q.rows)){
+    if(q.rows.some(row=>!val||!(row in val)||typeof val[row]!=='object'||!Object.values(val[row]||{}).some(x=>x!==''&&x!=null))){
+      return q.title+' — bütün matris sətirlərini cavablandırın.';
+    }
+  } else if(q.type.startsWith('matrix')&&isReq&&Array.isArray(q.rows)){
     if(q.rows.some(row=>!val||!(row in val)||(Array.isArray(val[row])?!val[row].length:!val[row]))){
       return q.title+' — bütün matris sətirlərini cavablandırın.';
+    }
+  }
+  if(q.type==='fill_blank'&&isReq&&Array.isArray(q.options)){
+    if(q.options.some(o=>!val||!(o.id in val)||val[o.id]===undefined||val[o.id]===null||String(val[o.id]).trim()==='')){
+      return q.title+' — bütün boşluqları doldurun.';
     }
   }
   if(q.type==='ranking'&&isReq&&Array.isArray(q.options)){
@@ -166,7 +179,29 @@ function validateAnswers(survey,answers){
   }
   return null;
 }
-function answerSanitize(answers,survey){if(!answers||typeof answers!=='object'||Array.isArray(answers))return {};const out={};for(const q of survey.questions){const a=answers[q.id];if(a===undefined||a===null)continue;if(typeof a==='string')out[q.id]=a.slice(0,6000);else if(typeof a==='number'&&Number.isFinite(a))out[q.id]=a;else if(Array.isArray(a))out[q.id]=a.slice(0,100).map(x=>cleanText(x,500));else if(typeof a==='object')out[q.id]=Object.fromEntries(Object.entries(a).slice(0,100).map(([k,v])=>[cleanText(k,180),cleanText(v,800)]));else if(typeof a==='boolean')out[q.id]=a;}return out;}
+function answerSanitize(answers,survey){
+  if(!answers||typeof answers!=='object'||Array.isArray(answers))return {};
+  const out={};
+  for(const q of survey.questions){
+    const a=answers[q.id];
+    if(a===undefined||a===null)continue;
+    if(typeof a==='string')out[q.id]=a.slice(0,6000);
+    else if(typeof a==='number'&&Number.isFinite(a))out[q.id]=a;
+    else if(Array.isArray(a))out[q.id]=a.slice(0,100).map(x=>cleanText(x,500));
+    else if(typeof a==='object'){
+      out[q.id]=Object.fromEntries(
+        Object.entries(a).slice(0,100).map(([k,v])=>{
+          if(typeof v==='object'&&v!==null&&!Array.isArray(v)){
+            return [cleanText(k,180), Object.fromEntries(Object.entries(v).slice(0,50).map(([ck,cv])=>[cleanText(ck,180),cleanText(cv,800)]))];
+          }
+          return [cleanText(k,180),cleanText(v,800)];
+        })
+      );
+    }
+    else if(typeof a==='boolean')out[q.id]=a;
+  }
+  return out;
+}
 function csvVal(v){const txt=Array.isArray(v)?v.join(' | '):typeof v==='object'&&v?Object.entries(v).map(([k,val])=>k+': '+val).join(' | '):String(v??'');const safe=/^[\x00-\x20]*[=+\-@]/.test(txt)?"'"+txt:txt;return '"'+safe.replace(/"/g,'""')+'"';}
 function formatDuration(sec){
   const s = Math.max(0, Math.round(Number(sec) || 0));
@@ -187,7 +222,24 @@ function cleanAnswerForExport(v, q) {
   if (Array.isArray(v)) return v.join(', ');
   if (typeof v === 'object') {
     if (v.variant && v.answer !== undefined) return String(v.variant) + ' -> ' + String(v.answer);
-    return Object.entries(v).map(([k, val]) => `${k}: ${val}`).join('; ');
+    if (q?.type === 'fill_blank' && Array.isArray(q?.options)) {
+      const parts = q.options.map(o => {
+        const filled = v[o.id] !== undefined && v[o.id] !== null ? String(v[o.id]).trim() : '';
+        if (!filled) return '';
+        const regex = /_{2,}|\[\s*\]|\{\s*\}|\.{3,}/;
+        if (regex.test(o.label)) {
+          return o.label.replace(regex, `[${filled}]`);
+        }
+        return `${o.label}: [${filled}]`;
+      }).filter(Boolean);
+      if (parts.length) return parts.join('; ');
+    }
+    return Object.entries(v).map(([k, val]) => {
+      if (typeof val === 'object' && val !== null) {
+        return `${k} (${Object.entries(val).map(([col, cv]) => `${col}: ${cv}`).join(', ')})`;
+      }
+      return `${k}: ${val}`;
+    }).join('; ');
   }
   return String(v);
 }
@@ -465,7 +517,13 @@ function report(survey,user){
       } else if (Array.isArray(v)) {
         v.forEach(x => { counts[x] = (counts[x] || 0) + 1; });
       } else if (v && typeof v === 'object') {
-        Object.values(v).forEach(x => { counts[x] = (counts[x] || 0) + 1; });
+        Object.values(v).forEach(x => {
+          if (typeof x === 'object' && x !== null) {
+            Object.values(x).forEach(y => { if (y !== '' && y !== null) counts[y] = (counts[y] || 0) + 1; });
+          } else if (x !== '' && x !== null) {
+            counts[x] = (counts[x] || 0) + 1;
+          }
+        });
       }
     });
     return {
@@ -475,7 +533,7 @@ function report(survey,user){
       answered: vals.length,
       counts: Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 20),
       average: numeric.length ? Math.round(numeric.reduce((a,b) => a + b, 0) / numeric.length * 10) / 10 : null,
-      samples: ['paragraph','short_text','name','address'].includes(q.type) ? vals.filter(x => typeof x === 'string').slice(-5) : []
+      samples: ['paragraph','short_text','fill_blank','name','address'].includes(q.type) ? vals.map(v => cleanAnswerForExport(v, q)).slice(-5) : []
     };
   });
 
@@ -655,6 +713,24 @@ if(p==='/api/login'&&method==='POST'){
     const questionColumns = [];
     s.questions.forEach((q, idx) => {
       const qNum = 'Sual ' + (idx + 1);
+      if (q.type === 'matrix_text' && Array.isArray(q.rows) && q.rows.length && Array.isArray(q.columns) && q.columns.length) {
+        q.rows.forEach(rowKey => {
+          q.columns.forEach(col => {
+            questionColumns.push({
+              title: `${qNum} [${rowKey} - ${col}]: ${q.title}`,
+              getValue: (ans) => {
+                const val = ans ? ans[q.id] : undefined;
+                if (!val || typeof val !== 'object' || Array.isArray(val)) return '—';
+                const rowObj = val[rowKey];
+                if (!rowObj || typeof rowObj !== 'object') return '—';
+                const cell = rowObj[col];
+                return (cell !== undefined && cell !== null && cell !== '') ? String(cell) : '—';
+              }
+            });
+          });
+        });
+        return;
+      }
       if (q.type && q.type.startsWith('matrix')) {
         let rowKeys = Array.isArray(q.rows) && q.rows.length ? [...q.rows] : [];
         if (!rowKeys.length) {
@@ -680,6 +756,20 @@ if(p==='/api/login'&&method==='POST'){
           });
           return;
         }
+      }
+      if (q.type === 'fill_blank' && Array.isArray(q.options) && q.options.length) {
+        q.options.forEach(opt => {
+          questionColumns.push({
+            title: `${qNum} [${opt.label}]: ${q.title}`,
+            getValue: (ans) => {
+              const val = ans ? ans[q.id] : undefined;
+              if (!val || typeof val !== 'object' || Array.isArray(val)) return '—';
+              const cell = val[opt.id];
+              return (cell !== undefined && cell !== null && cell !== '') ? String(cell) : '—';
+            }
+          });
+        });
+        return;
       }
       if (q.type === 'multitext' && Array.isArray(q.rows) && q.rows.length) {
         q.rows.forEach(rowKey => {

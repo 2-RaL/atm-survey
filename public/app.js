@@ -58,8 +58,8 @@ const ico=(name,size=18)=>`<svg width="${size}" height="${size}" viewBox="0 0 24
 
 const TYPES=[
  ['Seçim','single','Tək seçim','list'],['Seçim','multiple','Çoxlu seçim','check'],['Seçim','dropdown','Açılan siyahı','down'],['Seçim','yesno','Bəli / Xeyr','check'],['Seçim','image_choice','Şəkillə seçim','grid'],
- ['Qiymətləndirmə','rating','Reytinq şkalası','chart'],['Qiymətləndirmə','stars','Ulduz reytinqi','star'],['Qiymətləndirmə','slider','Sürüşdürmə','sort'],['Qiymətləndirmə','ranking','Sıralama','sort'],['Qiymətləndirmə','bestworst','Ən yaxşı / ən pis','layers'],['Qiymətləndirmə','matrix','Matris / reytinq cədvəli','grid'],['Qiymətləndirmə','matrix_multi','Çoxseçimli matris','grid'],['Qiymətləndirmə','matrix_dropdown','Matris / açılan menyu','grid'],['Qiymətləndirmə','nps','Net Promoter Score','chart'],['Qiymətləndirmə','likert','Likert şkalası','chart'],
- ['Mətn və rəqəm','short_text','Qısa mətn','edit'],['Mətn və rəqəm','paragraph','Şərh / geniş mətn','edit'],['Mətn və rəqəm','number','Rəqəm','sort'],['Mətn və rəqəm','currency','Məbləğ (AZN)','sort'],['Mətn və rəqəm','percentage','Faiz','chart'],['Mətn və rəqəm','multitext','Çoxlu mətn sahəsi','layers'],
+ ['Qiymətləndirmə','rating','Reytinq şkalası','chart'],['Qiymətləndirmə','stars','Ulduz reytinqi','star'],['Qiymətləndirmə','slider','Sürüşdürmə','sort'],['Qiymətləndirmə','ranking','Sıralama','sort'],['Qiymətləndirmə','bestworst','Ən yaxşı / ən pis','layers'],['Qiymətləndirmə','matrix','Matris / reytinq cədvəli','grid'],['Qiymətləndirmə','matrix_multi','Çoxseçimli matris','grid'],['Qiymətləndirmə','matrix_dropdown','Matris / açılan menyu','grid'],['Qiymətləndirmə','matrix_text','Mətnli matris cədvəli','grid'],['Qiymətləndirmə','nps','Net Promoter Score','chart'],['Qiymətləndirmə','likert','Likert şkalası','chart'],
+ ['Mətn və rəqəm','short_text','Qısa mətn','edit'],['Mətn və rəqəm','paragraph','Şərh / geniş mətn','edit'],['Mətn və rəqəm','fill_blank','Boşluq doldurma','edit'],['Mətn və rəqəm','number','Rəqəm','sort'],['Mətn və rəqəm','currency','Məbləğ (AZN)','sort'],['Mətn və rəqəm','percentage','Faiz','chart'],['Mətn və rəqəm','multitext','Çoxlu mətn sahəsi','layers'],
  ['Şəxsi məlumat','name','Ad və soyad','users'],['Şəxsi məlumat','email','E-poçt','mail'],['Şəxsi məlumat','phone','Telefon','phone'],['Şəxsi məlumat','address','Ünvan','contacts'],['Şəxsi məlumat','date','Tarix','calendar'],['Şəxsi məlumat','time','Saat','clock'],['Şəxsi məlumat','datetime','Tarix və saat','calendar'],['Şəxsi məlumat','file','Fayl yükləmə','upload'],
  ['Digər','consent','Razılıq','shield'],['Digər','text_ab','Mətn A/B testi','layers'],['Digər','image_ab','Şəkil A/B testi','grid']
 ];
@@ -139,16 +139,29 @@ function validateQuestionAnswer(q,val){
 
   const isEmpty=val===undefined||val===null||val===''||
     (Array.isArray(val)&&!val.length)||
-    (typeof val==='object'&&!Array.isArray(val)&&!Object.values(val).some(x=>Array.isArray(x)?x.length:(x!==''&&x!=null)));
+    (typeof val==='object'&&!Array.isArray(val)&&!Object.values(val).some(x=>{
+      if(Array.isArray(x)) return x.length>0;
+      if(typeof x==='object'&&x!==null) return Object.values(x).some(y=>y!==''&&y!=null);
+      return x!==''&&x!=null;
+    }));
 
   if(isReq&&isEmpty){
     return q.title+' — bu suala cavab verilməlidir.';
   }
   if(isEmpty)return '';
 
-  if(q.type.startsWith('matrix')&&isReq&&Array.isArray(q.rows)){
+  if(q.type==='matrix_text'&&isReq&&Array.isArray(q.rows)){
+    if(q.rows.some(row=>!val||!(row in val)||typeof val[row]!=='object'||!Object.values(val[row]||{}).some(x=>x!==''&&x!=null))){
+      return q.title+' — bütün matris sətirlərini cavablandırın.';
+    }
+  } else if(q.type.startsWith('matrix')&&isReq&&Array.isArray(q.rows)){
     if(q.rows.some(row=>!val||!(row in val)||(Array.isArray(val[row])?!val[row].length:!val[row]))){
       return q.title+' — bütün matris sətirlərini cavablandırın.';
+    }
+  }
+  if(q.type==='fill_blank'&&isReq&&Array.isArray(q.options)){
+    if(q.options.some(o=>!val||!(o.id in val)||val[o.id]===undefined||val[o.id]===null||String(val[o.id]).trim()==='')){
+      return q.title+' — bütün boşluqları doldurun.';
     }
   }
   if(q.type==='ranking'&&isReq&&Array.isArray(q.options)){
@@ -1100,7 +1113,18 @@ function settingsPage(){
 function newQuestion(type,sectionId){
   const question={id:mkId(),sectionId,type,title:'Yeni sual',description:'',required:!['paragraph','file','consent'].includes(type),options:[],rows:[],columns:[],settings:{min:0,max:10},condition:null};
   if(['single','multiple','dropdown','image_choice','ranking','bestworst','text_ab','image_ab'].includes(type))question.options=['Variant 1','Variant 2','Variant 3'].map(label=>({id:mkId(),label,image:''}));
-  if(type.startsWith('matrix')){question.rows=['Meyar 1','Meyar 2','Meyar 3'];question.columns=['Pis','Orta','Yaxşı','Əla'];}
+  if(type==='fill_blank'){
+    question.title='Əkin və məhsuldarlıq məlumatları';
+    question.options=[
+      {id:mkId(),label:'Yaz zamanı ____ kq kartof əkmişəm.',image:''},
+      {id:mkId(),label:'Payızda ____ kq məhsul yığmışam.',image:''}
+    ];
+  }
+  if(type==='matrix_text'){
+    question.title='Hansı sort kartoflardan əkmisiniz?';
+    question.rows=['Bakı kartofu','Cəlilabad kartofu','Gədəbəy kartofu'];
+    question.columns=['0-100','100-200','200-300'];
+  } else if(type.startsWith('matrix')){question.rows=['Meyar 1','Meyar 2','Meyar 3'];question.columns=['Pis','Orta','Yaxşı','Əla'];}
   if(type==='multitext')question.rows=['Sahə 1','Sahə 2'];
   if(['rating','stars','likert'].includes(type)){question.settings={min:1,max:5};}
   if(type==='nps')question.settings={min:0,max:10};
@@ -1201,15 +1225,16 @@ function questionMini(q){
   const opt=q.options||[];
   if(['single','multiple','dropdown','yesno','image_choice','text_ab','image_ab'].includes(q.type))return `<div class="fake-options">${(q.type==='yesno'?['Bəli','Xeyr']:opt.map(x=>x.label)).slice(0,4).map(t=>`<span class="fake-option">◯ ${esc(t)}</span>`).join('')||'Variant əlavə edin'}</div>`;
   if(['rating','stars','slider','nps','likert'].includes(q.type))return `<div class="fake-options">${Array.from({length:5},(_,i)=>`<span class="fake-option">${q.type==='stars'?'☆':i+1}</span>`).join('')}</div>`;
-  if(q.type.startsWith('matrix'))return `${q.rows.length} meyar × ${q.columns.length} cavab variantı`;
+  if(q.type==='fill_blank')return `<div class="fake-options">${(opt.slice(0,2).map(x=>`<span class="fake-option">✍ ${esc(x.label)}</span>`).join(''))||'Cümlə və boşluq əlavə edin'}</div>`;
+  if(q.type.startsWith('matrix'))return `${q.rows.length} meyar × ${q.columns.length} ${q.type==='matrix_text'?'daxiletmə xanası':'cavab variantı'}`;
   return '<div class="fake-line">Cavab üçün sahə...</div>';
 }
 
 function properties(q){
   const s=state.builder;
   if(!q.settings)q.settings={};
-  const withOpts=['single','multiple','dropdown','image_choice','ranking','bestworst','text_ab','image_ab'].includes(q.type);
-  const withRows=['matrix','matrix_multi','matrix_dropdown','multitext'].includes(q.type);
+  const withOpts=['single','multiple','dropdown','image_choice','ranking','bestworst','text_ab','image_ab','fill_blank'].includes(q.type);
+  const withRows=['matrix','matrix_multi','matrix_dropdown','matrix_text','multitext'].includes(q.type);
   const numericLike=['slider','rating','stars','nps','likert','number','currency','percentage','short_text'].includes(q.type);
   const textLike=['short_text','paragraph','name','email','phone','address'].includes(q.type);
   const unitGroups=[...new Set(MEASURE_UNITS.map(x=>x.group))];
@@ -1226,15 +1251,29 @@ function properties(q){
       <div class="field"><label>Bölmə</label><select data-builder-field="sectionId" data-qid="${q.id}">${s.sections.map(x=>`<option value="${x.id}" ${q.sectionId===x.id?'selected':''}>${esc(x.title)}</option>`).join('')}</select></div>
       ${withOpts?`
         <div class="prop-divider"></div>
-        <div class="field"><label>Cavab variantları (hər sətirdə bir variant)</label><textarea data-builder-field="options" data-qid="${q.id}" style="min-height:125px">${esc(q.options.map(x=>x.label).join('\n'))}</textarea><small>İstədiyiniz qədər variant daxil edin.</small></div>
+        <div class="field">
+          <label>${q.type==='fill_blank'?'Cümlələr və boşluq sahələri (hər sətirdə bir)':'Cavab variantları (hər sətirdə bir variant)'}</label>
+          <textarea data-builder-field="options" data-qid="${q.id}" style="min-height:125px">${esc(q.options.map(x=>x.label).join('\n'))}</textarea>
+          ${q.type==='fill_blank'?`<small>Mətn daxilində <b>____</b> (alt xətt) və ya <b>[ ]</b> yazaraq doldurula bilən boşluq sahəsi yarada bilərsiniz. Məsələn: <i>"Yaz zamanı ____ kq kartof əkmişəm."</i></small>`:`<small>İstədiyiniz qədər variant daxil edin.</small>`}
+        </div>
         ${['image_choice','image_ab'].includes(q.type)?`
           <div class="field"><label>Şəkil URL-ləri (variantlarla eyni ardıcıllıqda)</label><textarea data-builder-field="images" data-qid="${q.id}">${esc(q.options.map(x=>x.image||'').join('\n'))}</textarea></div>
         `:''}
       `:''}
       ${withRows?`
         <div class="prop-divider"></div>
-        <div class="field"><label>${q.type==='multitext'?'Mətn sahələrinin adları':'Matris sətirləri'} (hər sətirdə bir)</label><textarea data-builder-field="rows" data-qid="${q.id}">${esc(q.rows.join('\n'))}</textarea></div>
-        ${q.type!=='multitext'?`<div class="field"><label>Matris sütunları (hər sətirdə bir)</label><textarea data-builder-field="columns" data-qid="${q.id}">${esc(q.columns.join('\n'))}</textarea></div>`:''}
+        <div class="field">
+          <label>${q.type==='multitext'?'Mətn sahələrinin adları':q.type==='matrix_text'?'Cədvəl meyarları / sətirlər':'Matris sətirləri'} (hər sətirdə bir)</label>
+          <textarea data-builder-field="rows" data-qid="${q.id}">${esc(q.rows.join('\n'))}</textarea>
+          ${q.type==='matrix_text'?`<small>Birinci sütunda əks olunacaq meyarlar (məsələn: Bakı kartofu, Cəlilabad kartofu...)</small>`:''}
+        </div>
+        ${q.type!=='multitext'?`
+          <div class="field">
+            <label>${q.type==='matrix_text'?'Sütun başlıqları':'Matris sütunları'} (hər sətirdə bir)</label>
+            <textarea data-builder-field="columns" data-qid="${q.id}">${esc(q.columns.join('\n'))}</textarea>
+            ${q.type==='matrix_text'?`<small>Operatorun qarşısında dolduracağı sütun başlıqları (məsələn: 0-100, 100-200, 200-300...)</small>`:''}
+          </div>
+        `:''}
       `:''}
       ${numericLike?`
         <div class="prop-divider"></div>
@@ -1401,9 +1440,30 @@ function renderAnswer(q,answers={},preview=false){
   else if(type==='stars')html=`<div class="star-rating">${Array.from({length:Math.min(10,max)},(_,i)=>i+1).map(n=>`<button type="button" class="${Number(val)>=n?'active':''}" data-action="numeric-answer" data-qid="${questionId}" data-value="${n}" ${disabled}>★</button>`).join('')}</div>`;
   else if(type==='slider')html=`<input class="answer-range" data-answer="${questionId}" type="range" min="${min}" max="${max}" step="${Number(q.settings?.step)||1}" value="${val??min}" ${disabled}><div class="range-row"><span>${min}</span><b class="slider-value" data-for="${questionId}" style="color:#6656e9">${val??min}</b><span>${max}</span></div>`;
   else if(type==='consent')html=`<label class="choice-card" style="max-width:470px"><input type="checkbox" data-answer="${questionId}" value="Bəli" ${checked('Bəli')?'checked':''} ${disabled}> Razılıq verirəm</label>`;
+  else if(type==='fill_blank'){
+    const blankRegex=/_{2,}|\[\s*\]|\{\s*\}|\.{3,}/g;
+    html=`<div class="fillblank-container">${opts.map((o,optIdx)=>{
+      const text=o.label||`Variant ${optIdx+1}`;
+      const hasBlank=blankRegex.test(text);
+      let rendered='';
+      if(hasBlank){
+        let count=0;
+        rendered=esc(text).replace(/(_{2,}|\[\s*\]|\{\s*\}|\.{3,})/g,()=>{
+          const key=count===0?o.id:`${o.id}_${count}`;
+          const currentVal=(typeof val==='object'&&val)?(val[key]??''):'';
+          count++;
+          return `<input type="text" class="answer-input fillblank-input" data-answer="${questionId}" data-blank-id="${esc(key)}" value="${esc(currentVal)}" placeholder="______" ${disabled}>`;
+        });
+      }else{
+        const currentVal=(typeof val==='object'&&val)?(val[o.id]??''):'';
+        rendered=`${esc(text)} <input type="text" class="answer-input fillblank-input" data-answer="${questionId}" data-blank-id="${esc(o.id)}" value="${esc(currentVal)}" placeholder="______" ${disabled}>`;
+      }
+      return `<div class="fillblank-row"><span class="fillblank-text">${rendered}</span></div>`;
+    }).join('')||'<div class="note">Variant və ya cümlə əlavə edilməyib.</div>'}</div>`;
+  }
   else if(type.startsWith('matrix')){
-    const rows=q.rows||[],cols=q.columns||[],multi=type==='matrix_multi',drop=type==='matrix_dropdown';
-    html=`<div class="matrix-wrap"><table class="matrix"><thead><tr><th></th>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr><td class="matrix-row-title">${esc(row)}</td>${drop?`<td colspan="${cols.length}" style="padding:8px 12px"><select class="answer-input" style="height:36px" data-answer="${questionId}" data-row="${esc(row)}" ${disabled}><option value="">Seçin...</option>${cols.map(col=>`<option value="${esc(col)}" ${(val||{})[row]===col?'selected':''}>${esc(col)}</option>`).join('')}</select></td>`:cols.map(col=>`<td class="matrix-choice-td"><label class="matrix-choice-label"><input type="${multi?'checkbox':'radio'}" class="matrix-round-input" name="mx_${questionId}_${esc(row)}" data-answer="${questionId}" data-row="${esc(row)}" value="${esc(col)}" ${multi?(Array.isArray((val||{})[row])&&(val||{})[row].includes(col)?'checked':''):((val||{})[row]===col?'checked':'')} ${disabled}></label></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    const rows=q.rows||[],cols=q.columns||[],multi=type==='matrix_multi',drop=type==='matrix_dropdown',isText=type==='matrix_text';
+    html=`<div class="matrix-wrap"><table class="matrix ${isText?'matrix-text-table':''}"><thead><tr><th style="min-width:160px">Meyarlar</th>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr><td class="matrix-row-title"><b>${esc(row)}</b></td>${isText?cols.map(col=>`<td class="matrix-cell-td"><input type="text" class="answer-input matrix-cell-input" data-answer="${questionId}" data-row="${esc(row)}" data-col="${esc(col)}" value="${esc((val?.[row]||{})[col]||'')}" placeholder="______" ${disabled}></td>`).join(''):drop?`<td colspan="${cols.length}" style="padding:8px 12px"><select class="answer-input" style="height:36px" data-answer="${questionId}" data-row="${esc(row)}" ${disabled}><option value="">Seçin...</option>${cols.map(col=>`<option value="${esc(col)}" ${(val||{})[row]===col?'selected':''}>${esc(col)}</option>`).join('')}</select></td>`:cols.map(col=>`<td class="matrix-choice-td"><label class="matrix-choice-label"><input type="${multi?'checkbox':'radio'}" class="matrix-round-input" name="mx_${questionId}_${esc(row)}" data-answer="${questionId}" data-row="${esc(row)}" value="${esc(col)}" ${multi?(Array.isArray((val||{})[row])&&(val||{})[row].includes(col)?'checked':''):((val||{})[row]===col?'checked':'')} ${disabled}></label></td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   else if(type==='multitext')html=(q.rows||[]).map(row=>`<div class="multitext-row"><label>${esc(row)}</label><input class="answer-input" data-answer="${questionId}" data-row="${esc(row)}" value="${esc((val||{})[row]||'')}" placeholder="Cavabı daxil edin" ${disabled}></div>`).join('');
   else if(type==='ranking')html=`<p class="note">Hər variant üçün sıralama nömrəsi seçin (1 ən yüksəkdir).</p>${opts.map((o,i)=>`<div class="multitext-row"><label style="flex:1">${esc(o.label)}</label><select class="answer-input" style="max-width:110px" data-answer="${questionId}" data-row="${esc(o.label)}" ${disabled}><option value="">Sıra</option>${opts.map((_,j)=>`<option value="${j+1}" ${String((val||{})[o.label]||'')===String(j+1)?'selected':''}>${j+1}</option>`).join('')}</select></div>`).join('')}`;
@@ -1449,7 +1509,7 @@ function renderAnswer(q,answers={},preview=false){
 function conditionMatch(q,answers){
   if(!q.condition)return true;
   let value=answers[q.condition.questionId];
-  let str=Array.isArray(value)?value.join(', '):value&&typeof value==='object'?Object.values(value).join(', '):String(value??'');
+  let str=Array.isArray(value)?value.join(', '):value&&typeof value==='object'?Object.values(value).flatMap(x=>typeof x==='object'&&x?Object.values(x):x).join(', '):String(value??'');
   switch(q.condition.operator){
     case'equals':return Array.isArray(value)?value.includes(q.condition.value):str===q.condition.value;
     case'not_equals':return str!==q.condition.value;
@@ -1689,10 +1749,17 @@ function updateAnswer(node){
     const q=state.publicSurvey.questions.find(q=>q.id===id);
     if(!q)return;
     let v;
-    if(node.dataset.row){
+    if(node.dataset.blankId){
+      v={...(state.publicSurveyAnswers[id]||{})};
+      v[node.dataset.blankId]=node.value;
+    } else if(node.dataset.row){
       v={...(state.publicSurveyAnswers[id]||{})};
       const row=node.dataset.row;
-      if(q.type==='matrix_multi'){
+      if(q.type==='matrix_text'&&node.dataset.col){
+        const col=node.dataset.col;
+        v[row]={...(v[row]||{})};
+        v[row][col]=node.value;
+      } else if(q.type==='matrix_multi'){
         const checked=$$(`[data-answer="${CSS.escape(id)}"][data-row="${CSS.escape(row)}"]:checked`).map(x=>x.value);
         v[row]=checked;
       } else v[row]=node.value;
@@ -1709,31 +1776,38 @@ function updateAnswer(node){
     state.publicSurveyAnswers[id]=v;
     savePublicSurveyDraft(state.publicSurvey.id);
     if(node.type==='range'){$(`.slider-value[data-for="${id}"]`)?.replaceChildren(document.createTextNode(v));}
-    if(['radio','checkbox','select-one'].includes(node.type)&&!node.dataset.row)renderPublicSurvey();
+    if(['radio','checkbox','select-one'].includes(node.type)&&!node.dataset.row&&!node.dataset.blankId)renderPublicSurvey();
     return;
   }
   if(!state.interview||state.page!=='interview')return;
   const q=state.interview.survey.questions.find(q=>q.id===id);
   if(!q)return;
   let v;
-  if(node.dataset.row){
+  if(node.dataset.blankId){
+    v={...(state.interview.answers[id]||{})};
+    v[node.dataset.blankId]=node.value;
+  } else if(node.dataset.row){
     v={...(state.interview.answers[id]||{})};
     const row=node.dataset.row;
-    if(q.type==='matrix_multi'){
+    if(q.type==='matrix_text'&&node.dataset.col){
+      const col=node.dataset.col;
+      v[row]={...(v[row]||{})};
+      v[row][col]=node.value;
+    } else if(q.type==='matrix_multi'){
       const checked=$$(`[data-answer="${id}"][data-row="${CSS.escape(row)}"]:checked`).map(x=>x.value);
       v[row]=checked;
-    }else v[row]=node.value;
-  }else if(node.type==='checkbox'){
+    } else v[row]=node.value;
+  } else if(node.type==='checkbox'){
     if(q.type==='consent')v=node.checked?'Bəli':'';
     else v=$$(`input[data-answer="${id}"]:checked`).map(x=>x.value);
-  }else if(node.type==='range'||['number','currency','percentage'].includes(q.type))v=node.value===''?'':Number(node.value);
+  } else if(node.type==='range'||['number','currency','percentage'].includes(q.type))v=node.value===''?'':Number(node.value);
   else if(q.type==='text_ab'||q.type==='image_ab')v={variant:variantFor(q,'seed')?.label||'',answer:node.value};
   else v=node.value;
   state.interview.answers[id]=v;
   state.dirty=true;
   saveInterviewDraft();
   if(node.type==='range'){$(`.slider-value[data-for="${id}"]`)?.replaceChildren(document.createTextNode(v));}
-  if(['radio','checkbox','select-one'].includes(node.type)&&!node.dataset.row)render();
+  if(['radio','checkbox','select-one'].includes(node.type)&&!node.dataset.row&&!node.dataset.blankId)render();
 }
 
 async function finishInterview(){
@@ -2109,6 +2183,41 @@ function responseDetails(id){
 }
 
 function renderQuestionEditField(q, ans){
+  if(q.type==='fill_blank'&&Array.isArray(q.options)){
+    const obj=typeof ans==='object'&&ans?ans:{};
+    return `
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${q.options.map(o=>`
+          <div style="display:flex;align-items:center;gap:10px;font-size:12px;background:#ffffff;padding:8px 10px;border-radius:6px;border:1px solid #e2e8f0">
+            <span style="flex:1;font-weight:500;color:#334155">${esc(o.label)}</span>
+            <input data-qans-blank="${q.id}" data-blank-id="${o.id}" value="${esc(obj[o.id]||'')}" style="width:130px;height:32px;font-size:12px" placeholder="Cavab...">
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+  if(q.type==='matrix_text'&&Array.isArray(q.rows)&&Array.isArray(q.columns)){
+    const obj=typeof ans==='object'&&ans?ans:{};
+    return `
+      <div style="overflow-x:auto">
+        <table class="table" style="font-size:12px;background:#ffffff">
+          <thead><tr><th>Meyar</th>${q.columns.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead>
+          <tbody>
+            ${q.rows.map(r=>`
+              <tr>
+                <td><b>${esc(r)}</b></td>
+                ${q.columns.map(c=>`
+                  <td>
+                    <input data-qans-matrix="${q.id}" data-row="${esc(r)}" data-col="${esc(c)}" value="${esc((obj[r]||{})[c]||'')}" style="width:90px;height:30px;padding:3px 6px;font-size:12px;text-align:center" placeholder="...">
+                  </td>
+                `).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
   if(q.options&&q.options.length&&q.type==='single'){
     return `
       <select data-qans="${q.id}">
@@ -2442,6 +2551,20 @@ async function handleForm(form){
       });
       survey?.questions.filter(q=>q.type==='multiple').forEach(q=>{
         answers[q.id]=multiGroups[q.id]||[];
+      });
+      form.querySelectorAll('[data-qans-blank]').forEach(input=>{
+        const qid=input.dataset.qansBlank;
+        const bId=input.dataset.blankId;
+        if(!answers[qid])answers[qid]={};
+        answers[qid][bId]=input.value.trim();
+      });
+      form.querySelectorAll('[data-qans-matrix]').forEach(input=>{
+        const qid=input.dataset.qansMatrix;
+        const row=input.dataset.row;
+        const col=input.dataset.col;
+        if(!answers[qid])answers[qid]={};
+        if(!answers[qid][row])answers[qid][row]={};
+        answers[qid][row][col]=input.value.trim();
       });
 
       const data={
