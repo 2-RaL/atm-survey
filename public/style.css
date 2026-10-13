@@ -536,11 +536,11 @@
 }
 .builder-panel {
   overflow-y: auto !important;
-  scroll-behavior: smooth !important;
+  scroll-behavior: auto !important;
 }
 .builder-stage {
   overflow-y: auto !important;
-  scroll-behavior: smooth !important;
+  scroll-behavior: auto !important;
 }
 
 /* MEASUREMENT UNITS & INPUT BADGES */

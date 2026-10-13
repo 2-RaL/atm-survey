@@ -1091,6 +1091,70 @@ test('Question Library complete audit (all 34 types), Image A/B vs Text A/B test
   }
 });
 
+test('Builder scroll freeze, in-place updates, and default required: false for newly added questions', async t => {
+  const appJsPath = path.join(project, 'public/app.js');
+  const cssPath = path.join(project, 'public/style.css');
+  const appJs = fs.readFileSync(appJsPath, 'utf8');
+  const css = fs.readFileSync(cssPath, 'utf8');
+
+  // 1. Verify CSS sets scroll-behavior: auto to prevent bouncy gliding in builder
+  assert.ok(css.includes('.builder-panel'), 'CSS has .builder-panel');
+  assert.ok(css.includes('.builder-stage'), 'CSS has .builder-stage');
+  assert.ok(css.includes('scroll-behavior: auto !important'), 'CSS specifies scroll-behavior: auto !important');
+
+  // 2. Evaluate newQuestion in sandbox and verify required: false for all types
+  const vm = require('vm');
+  const sandbox = {
+    mkId: () => 'test-' + Math.random().toString(36).slice(2),
+    typeLabel: (t) => t,
+    MEASURE_UNITS: [],
+    TEXT_RULES: [],
+    DEMO_IMG_A: 'demoA',
+    DEMO_IMG_B: 'demoB',
+    DEMO_IMG_C: 'demoC',
+    state: { builder: null },
+    document: null,
+    localStorage: null
+  };
+  const nqMatch = appJs.match(/function newQuestion\(type,sectionId\)\{[\s\S]*?\n\}/);
+  assert.ok(nqMatch, 'newQuestion function found in app.js');
+  vm.createContext(sandbox);
+  vm.runInContext(nqMatch[0], sandbox);
+
+  const all34Types = [
+    'short_text','paragraph','numeric','currency','percentage','phone',
+    'single','multiple','dropdown','yesno','image_choice',
+    'rating','stars','nps','slider','ranking','constant_sum',
+    'matrix_radio','matrix_checkbox','matrix_scale','matrix_text',
+    'date','time','datetime','duration',
+    'email','url','file','location','consent','hidden','signature',
+    'text_ab','image_ab'
+  ];
+
+  for (const type of all34Types) {
+    const q = sandbox.newQuestion(type, 'sec-1');
+    assert.strictEqual(
+      q.required,
+      false,
+      `Question type '${type}' must default to required: false so user can choose when to make it mandatory`
+    );
+  }
+
+  // 3. Verify in-place builder update architecture in app.js
+  assert.ok(appJs.includes('function builderStageContent()'), 'builderStageContent function exists');
+  assert.ok(appJs.includes('function builderPropertyContent()'), 'builderPropertyContent function exists');
+  assert.ok(appJs.includes('function updateBuilderStage('), 'updateBuilderStage function exists');
+
+  // 4. Verify actions add-question, clone-question, delete-question, move-question call updateBuilderStage
+  assert.ok(appJs.includes("updateBuilderStage(q.id, true)"), 'add-question calls updateBuilderStage');
+  assert.ok(appJs.includes("updateBuilderStage(clone.id, false, true)"), 'clone-question calls updateBuilderStage');
+  assert.ok(appJs.includes("updateBuilderStage(state.builderQ, false, true)"), 'delete-question/save-builder calls updateBuilderStage');
+
+  // 5. Verify checkbox toggle in builder properties does not call render()
+  assert.ok(appJs.includes("if(el.type==='checkbox'){\n      return;"), 'builderField explicitly avoids re-render on checkbox');
+  assert.ok(!appJs.includes("if(el.tagName==='SELECT'||el.type==='checkbox')render()"), 'No full render on checkbox toggle');
+});
+
 
 
 

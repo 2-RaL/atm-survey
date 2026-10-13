@@ -1176,7 +1176,7 @@ function newQuestion(type,sectionId){
     type,
     title:'Yeni sual',
     description:'',
-    required:!['paragraph','file','consent'].includes(type),
+    required:false,
     options:[],
     rows:[],
     columns:[],
@@ -1348,7 +1348,7 @@ function newQuestion(type,sectionId){
     case'consent':
       question.title='Fərdi məlumatların "Fərdi məlumatlar haqqında" AR Qanununa uyğun emalına razılıq verirsinizmi?';
       question.description='Sorğuda iştirak etməklə məlumatlarınızın aqrar təhlillərdə istifadəsinə razılıq vermiş olursunuz.';
-      question.required=true;
+      question.required=false;
       break;
     case'text_ab':
       question.title='Yeni aqrar maarifləndirmə şüarının qiymətləndirilməsi (A/B Testi)';
@@ -1396,11 +1396,106 @@ function makeBuilder(survey){
   window.scrollTo(0,0);
 }
 
+function builderStageContent(){
+  const s=state.builder;
+  if(!s)return '';
+  if(state.preview)return builderPreview();
+  const qBySection=id=>s.questions.filter(q=>q.sectionId===id);
+  return `
+    <div class="builder-intro">
+      <small>${esc(s.category||'Ümumi')} / ${s.questions.length} sual / ${s.sections.length} bölmə / ${s.access==='private'?'Private (Daxili)':'Public (İctimai link)'}</small>
+      <h2>${esc(s.title)}</h2>
+      <p>${esc(s.description||'Sorğunu konfiqurasiya etmək üçün sualları seçin.')}</p>
+    </div>
+    ${s.sections.map((sec,i)=>`
+      <div class="section-band">
+        <h3>${i+1 < 10?'0'+(i+1):i+1} — ${esc(sec.title)}</h3>
+        <div class="inline-actions">
+          <button class="btn btn-sm" data-action="edit-section" data-id="${sec.id}">${ico('edit',13)}</button>
+          ${s.sections.length>1?`<button class="btn btn-sm" data-action="delete-section" data-id="${sec.id}">${ico('trash',13)}</button>`:''}
+        </div>
+      </div>
+      ${qBySection(sec.id).map((q,idx)=>`
+        <div class="q-card ${state.builderQ===q.id?'selected':''}" data-action="select-question" data-id="${q.id}">
+          <div class="qcard-top">
+            <span class="q-number">${idx+1}</span>
+            <div class="q-title">${esc(q.title)} ${q.required?'<span class="required">*</span>':''}<div class="q-mini-type">${typeLabel(q.type)}${q.condition?' · Şərt tətbiq edilib':''}</div></div>
+            <div class="q-actions">
+              <button data-action="move-question" data-id="${q.id}" data-direction="-1" title="Yuxarı">↑</button>
+              <button data-action="move-question" data-id="${q.id}" data-direction="1" title="Aşağı">↓</button>
+              <button data-action="clone-question" data-id="${q.id}" title="Kopyala">${ico('copy',13)}</button>
+              <button data-action="delete-question" data-id="${q.id}" title="Sil">${ico('trash',13)}</button>
+            </div>
+          </div>
+          <div class="q-preview">${questionMini(q)}</div>
+        </div>
+      `).join('')}
+      <button class="builder-add" data-action="add-question" data-section="${sec.id}" data-type="single">${ico('plus',15)} Bu bölməyə sual əlavə et</button>
+    `).join('')}
+    <button class="builder-add" data-action="add-section">${ico('plus',15)} Yeni bölmə əlavə et</button>
+  `;
+}
+
+function builderPropertyContent(){
+  const s=state.builder;
+  if(!s)return '';
+  const sel=s.questions.find(q=>q.id===state.builderQ);
+  if(state.preview){
+    return `
+      <div class="builder-panel-title">ÖNİZLƏMƏ</div>
+      <div class="prop-desc">Bu görüntü respondentə təqdim olunacaq interfeysə yaxındır.</div>
+    `;
+  }
+  return sel?properties(sel):`
+    <div class="builder-panel-title">SUAL PARAMETRLƏRİ</div>
+    ${empty('edit','Sual seçin','Soldakı kitabxanadan sual əlavə edin və ya ortadakı sualı seçin.')}
+  `;
+}
+
+function updateBuilderStage(targetQId, scrollToTarget=false, preserveScroll=true){
+  const stage=$('.builder-stage');
+  const propPanel=$('#property-panel');
+  if(!stage||!propPanel){
+    render();
+    return;
+  }
+  const prevStageScroll=stage.scrollTop;
+  const prevPropScroll=propPanel.scrollTop;
+
+  stage.innerHTML=builderStageContent();
+
+  const sel=state.builder?.questions.find(q=>q.id===state.builderQ);
+  propPanel.className=`builder-panel right ${sel&&state.propOpen?'show':''}`;
+  propPanel.innerHTML=builderPropertyContent();
+
+  const topEyebrow=document.querySelector('.builder-top .eyebrow');
+  if(topEyebrow){
+    topEyebrow.innerHTML=state.dirty
+      ? `SORĞU KONSTRUKTORU · <span style="color:var(--accent-orange,#ea580c);font-weight:600">QARALAMA YADDA SAXLANILDI (LOKAL)</span>`
+      : 'SORĞU KONSTRUKTORU';
+  }
+
+  if(scrollToTarget&&targetQId){
+    const card=stage.querySelector(`.q-card[data-id="${targetQId}"]`);
+    if(card){
+      const targetTop=card.offsetTop-stage.offsetTop-20;
+      stage.scrollTop=Math.max(0,targetTop);
+    }else if(preserveScroll){
+      stage.scrollTop=prevStageScroll;
+    }
+  }else if(preserveScroll){
+    stage.scrollTop=prevStageScroll;
+  }
+
+  if(prevPropScroll&&!scrollToTarget){
+    propPanel.scrollTop=prevPropScroll;
+  }
+}
+
 function builderPage(){
   const s=state.builder;
   if(!s)return `<div class="empty">Sorğu seçilməyib.</div>`;
   const sel=s.questions.find(q=>q.id===state.builderQ);
-  const qBySection=id=>s.questions.filter(q=>q.sectionId===id);
   return `
     <div class="builder-top">
       <div>
@@ -1428,48 +1523,10 @@ function builderPage(){
         `).join('')}
       </aside>
       <div class="builder-stage">
-        ${state.preview?builderPreview():`
-          <div class="builder-intro">
-            <small>${esc(s.category||'Ümumi')} / ${s.questions.length} sual / ${s.sections.length} bölmə / ${s.access==='private'?'Private (Daxili)':'Public (İctimai link)'}</small>
-            <h2>${esc(s.title)}</h2>
-            <p>${esc(s.description||'Sorğunu konfiqurasiya etmək üçün sualları seçin.')}</p>
-          </div>
-          ${s.sections.map((sec,i)=>`
-            <div class="section-band">
-              <h3>${i+1 < 10?'0'+(i+1):i+1} — ${esc(sec.title)}</h3>
-              <div class="inline-actions">
-                <button class="btn btn-sm" data-action="edit-section" data-id="${sec.id}">${ico('edit',13)}</button>
-                ${s.sections.length>1?`<button class="btn btn-sm" data-action="delete-section" data-id="${sec.id}">${ico('trash',13)}</button>`:''}
-              </div>
-            </div>
-            ${qBySection(sec.id).map((q,idx)=>`
-              <div class="q-card ${state.builderQ===q.id?'selected':''}" data-action="select-question" data-id="${q.id}">
-                <div class="qcard-top">
-                  <span class="q-number">${idx+1}</span>
-                  <div class="q-title">${esc(q.title)} ${q.required?'<span class="required">*</span>':''}<div class="q-mini-type">${typeLabel(q.type)}${q.condition?' · Şərt tətbiq edilib':''}</div></div>
-                  <div class="q-actions">
-                    <button data-action="move-question" data-id="${q.id}" data-direction="-1" title="Yuxarı">↑</button>
-                    <button data-action="move-question" data-id="${q.id}" data-direction="1" title="Aşağı">↓</button>
-                    <button data-action="clone-question" data-id="${q.id}" title="Kopyala">${ico('copy',13)}</button>
-                    <button data-action="delete-question" data-id="${q.id}" title="Sil">${ico('trash',13)}</button>
-                  </div>
-                </div>
-                <div class="q-preview">${questionMini(q)}</div>
-              </div>
-            `).join('')}
-            <button class="builder-add" data-action="add-question" data-section="${sec.id}" data-type="single">${ico('plus',15)} Bu bölməyə sual əlavə et</button>
-          `).join('')}
-          <button class="builder-add" data-action="add-section">${ico('plus',15)} Yeni bölmə əlavə et</button>
-        `}
+        ${builderStageContent()}
       </div>
       <aside class="builder-panel right ${sel&&state.propOpen?'show':''}" id="property-panel">
-        ${state.preview?`
-          <div class="builder-panel-title">ÖNİZLƏMƏ</div>
-          <div class="prop-desc">Bu görüntü respondentə təqdim olunacaq interfeysə yaxındır.</div>
-        `:sel?properties(sel):`
-          <div class="builder-panel-title">SUAL PARAMETRLƏRİ</div>
-          ${empty('edit','Sual seçin','Soldakı kitabxanadan sual əlavə edin və ya ortadakı sualı seçin.')}
-        `}
+        ${builderPropertyContent()}
       </aside>
     </div>`;
 }
@@ -2698,7 +2755,7 @@ async function dispatchAction(el){
       }
       case'new-survey':{
         const newSecId=mkId();
-        const s={title:'Yeni sorğu',description:'',category:'Ümumi',status:'draft',access:'public',estimatedMinutes:5,sections:[{id:newSecId,title:'Bölmə 1',description:''}],questions:[{id:mkId(),sectionId:newSecId,type:'single',title:'İlk sual',description:'',required:true,options:[{id:mkId(),label:'Variant 1',image:''},{id:mkId(),label:'Variant 2',image:''}],rows:[],columns:[],settings:{},condition:null}]};
+        const s={title:'Yeni sorğu',description:'',category:'Ümumi',status:'draft',access:'public',estimatedMinutes:5,sections:[{id:newSecId,title:'Bölmə 1',description:''}],questions:[{id:mkId(),sectionId:newSecId,type:'single',title:'İlk sual',description:'',required:false,options:[{id:mkId(),label:'Variant 1',image:''},{id:mkId(),label:'Variant 2',image:''}],rows:[],columns:[],settings:{},condition:null}]};
         const r=await api('/api/surveys',s);await refresh();makeBuilder(r.survey);notify('Yeni sorğu yaradıldı.');break;
       }
       case'edit-survey':{const s=state.surveys.find(x=>x.id===id);if(s)makeBuilder(s);break;}
@@ -2738,7 +2795,11 @@ async function dispatchAction(el){
         state.dirty=false;
         clearBuilderDraft(state.builder.id);
         await refresh();
-        render();
+        if($('.builder-stage')){
+          updateBuilderStage(state.builderQ, false, true);
+        } else {
+          render();
+        }
         notify('Sorğu uğurla yadda saxlanıldı və təsdiqləndi.');
         break;
       }
@@ -2752,11 +2813,11 @@ async function dispatchAction(el){
         state.propOpen=true;
         state.dirty=true;
         saveBuilderDraft();
-        render();
-        requestAnimationFrame(()=>{
-          const newCard=$(`.q-card[data-id="${q.id}"]`);
-          if(newCard)newCard.scrollIntoView({behavior:'smooth',block:'nearest'});
-        });
+        if($('.builder-stage')){
+          updateBuilderStage(q.id, true);
+        } else {
+          render();
+        }
         break;
       }
       case'select-question':{
@@ -2776,9 +2837,50 @@ async function dispatchAction(el){
         render();
         break;
       }
-      case'clone-question':{const i=state.builder.questions.findIndex(q=>q.id===id);const clone=structuredClone(state.builder.questions[i]);clone.id=mkId();clone.title+=' (surət)';state.builder.questions.splice(i+1,0,clone);state.builderQ=clone.id;state.propOpen=true;state.dirty=true;saveBuilderDraft();render();break;}
-      case'delete-question':if(confirm('Bu sualı silmək istəyirsiniz?')){state.builder.questions=state.builder.questions.filter(q=>q.id!==id);state.builderQ=state.builder.questions[0]?.id||null;state.dirty=true;saveBuilderDraft();render();}break;
-      case'move-question':{const s=state.builder,idx=s.questions.findIndex(q=>q.id===id),section=s.questions[idx].sectionId,matching=s.questions.map((q,i)=>q.sectionId===section?i:-1).filter(i=>i>=0),pos=matching.indexOf(idx),target=matching[pos+Number(el.dataset.direction)];if(target!==undefined){[s.questions[idx],s.questions[target]]=[s.questions[target],s.questions[idx]];state.dirty=true;saveBuilderDraft();render();}break;}
+      case'clone-question':{
+        const i=state.builder.questions.findIndex(q=>q.id===id);
+        const clone=structuredClone(state.builder.questions[i]);
+        clone.id=mkId();
+        clone.title+=' (surət)';
+        state.builder.questions.splice(i+1,0,clone);
+        state.builderQ=clone.id;
+        state.propOpen=true;
+        state.dirty=true;
+        saveBuilderDraft();
+        if($('.builder-stage')){
+          updateBuilderStage(clone.id, false, true);
+        } else {
+          render();
+        }
+        break;
+      }
+      case'delete-question':
+        if(confirm('Bu sualı silmək istəyirsiniz?')){
+          state.builder.questions=state.builder.questions.filter(q=>q.id!==id);
+          state.builderQ=state.builder.questions[0]?.id||null;
+          state.dirty=true;
+          saveBuilderDraft();
+          if($('.builder-stage')){
+            updateBuilderStage(state.builderQ, false, true);
+          } else {
+            render();
+          }
+        }
+        break;
+      case'move-question':{
+        const s=state.builder,idx=s.questions.findIndex(q=>q.id===id),section=s.questions[idx].sectionId,matching=s.questions.map((q,i)=>q.sectionId===section?i:-1).filter(i=>i>=0),pos=matching.indexOf(idx),target=matching[pos+Number(el.dataset.direction)];
+        if(target!==undefined){
+          [s.questions[idx],s.questions[target]]=[s.questions[target],s.questions[idx]];
+          state.dirty=true;
+          saveBuilderDraft();
+          if($('.builder-stage')){
+            updateBuilderStage(id, false, true);
+          } else {
+            render();
+          }
+        }
+        break;
+      }
       case'clear-opt-img':{
         const q=findBuilderQ(el.dataset.qid);
         const optIdx=Number(el.dataset.optIdx);
@@ -2794,11 +2896,25 @@ async function dispatchAction(el){
       }
       case'add-section':sectionModal();break;
       case'edit-section':sectionModal(id);break;
-      case'delete-section':{const s=state.builder;if(!confirm('Bölmə silinəcək. Bu bölmədəki suallar ilk bölməyə köçürüləcək.'))break;s.sections=s.sections.filter(x=>x.id!==id);s.questions.filter(q=>q.sectionId===id).forEach(q=>q.sectionId=s.sections[0].id);state.builderSection=s.sections[0].id;state.dirty=true;saveBuilderDraft();render();break;}
-      case'open-properties':state.propOpen=true;render();break;
-      case'close-properties':state.propOpen=false;render();break;
+      case'delete-section':{
+        const s=state.builder;
+        if(!confirm('Bölmə silinəcək. Bu bölmədəki suallar ilk bölməyə köçürüləcək.'))break;
+        s.sections=s.sections.filter(x=>x.id!==id);
+        s.questions.filter(q=>q.sectionId===id).forEach(q=>q.sectionId=s.sections[0].id);
+        state.builderSection=s.sections[0].id;
+        state.dirty=true;
+        saveBuilderDraft();
+        if($('.builder-stage')){
+          updateBuilderStage(state.builderQ, false, true);
+        } else {
+          render();
+        }
+        break;
+      }
+      case'open-properties':state.propOpen=true;if($('.builder-stage'))updateBuilderStage(state.builderQ,false,true);else render();break;
+      case'close-properties':state.propOpen=false;if($('.builder-stage'))updateBuilderStage(state.builderQ,false,true);else render();break;
       case'survey-settings':surveySettings();break;
-      case'builder-preview':state.preview=!state.preview;render();break;
+      case'builder-preview':state.preview=!state.preview;if($('.builder-stage'))updateBuilderStage(state.builderQ,false,true);else render();break;
       case'numeric-answer':{
         if(state.page==='public_survey'&&state.publicSurvey){
           state.publicSurveyAnswers[el.dataset.qid]=Number(el.dataset.value);
@@ -2939,7 +3055,13 @@ async function handleForm(form){
     }
     else return;
     closeModal();
-    if(['survey-settings','section'].includes(kind))render();
+    if(['survey-settings','section'].includes(kind)){
+      if($('.builder-stage')){
+        updateBuilderStage(state.builderQ, false, true);
+      } else {
+        render();
+      }
+    }
     else{await refresh();render();}
   }catch(e){notify(e.message,true);}
 }
@@ -3058,7 +3180,28 @@ document.addEventListener('change',async e=>{
     return;
   }
   if(el.dataset.builderField!==undefined){
-    if(el.tagName==='SELECT'||el.type==='checkbox')render();
+    updateBuilderField(el);
+    if(el.type==='checkbox'){
+      return;
+    }
+    if(el.dataset.builderField==='sectionId'){
+      if($('.builder-stage')){
+        updateBuilderStage(state.builderQ, false, true);
+      } else {
+        render();
+      }
+      return;
+    }
+    if(el.tagName==='SELECT'){
+      const propPanel=$('#property-panel');
+      if(propPanel){
+        const pScroll=propPanel.scrollTop;
+        const q=findBuilderQ(el.dataset.qid);
+        if(q)propPanel.innerHTML=properties(q);
+        propPanel.scrollTop=pScroll;
+      }
+      return;
+    }
     return;
   }
   if(el.dataset.statusFilter!==undefined){state.statusFilter=el.value;render();return;}
